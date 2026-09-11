@@ -24,6 +24,7 @@ from esm import pretrained
 from transformers import AutoTokenizer, AutoModel
 
 from biom3.backend.device import BACKEND_NAME, _XPU, get_device, setup_logger
+from biom3.core._dist_env import get_global_rank
 
 if BACKEND_NAME == _XPU:
     from lightning import LightningDataModule
@@ -881,16 +882,15 @@ def _pfam_source_fingerprint(pfam_data_path):
             "source_size": st.st_size, "source_mtime": st.st_mtime}
 
 
-def pfam_splits_status(splits_dir, pfam_data_path, num_shards):
-    """'reuse' if splits_dir holds a complete set of shards written from this
-    Pfam file for this world size; 'write' if it holds no manifest.
-
-    A manifest that does NOT match raises instead of regenerating: a pre-sharded
-    directory is never overwritten with a different layout behind your back.
+def pfam_splits_manifest_matches(splits_dir, pfam_data_path, num_shards):
+    """True if splits_dir has a manifest written from this Pfam file for this
+    world size; False if it has no manifest. A manifest that does NOT match
+    raises. Reads one small file and stats the source, nothing else, so every
+    rank can afford to call it.
     """
     path = os.path.join(splits_dir, PFAM_SPLITS_MANIFEST)
     if not os.path.exists(path):
-        return "write"
+        return False
     with open(path) as fh:
         manifest = json.load(fh)
     want = dict(_pfam_source_fingerprint(pfam_data_path), num_shards=num_shards)
@@ -899,6 +899,27 @@ def pfam_splits_status(splits_dir, pfam_data_path, num_shards):
         raise ValueError(
             f"{path} does not match this run (manifest, run): {mismatch}. "
             "Refusing to reuse or overwrite it; point pfam_splits_dir elsewhere.")
+    return True
+
+
+def _configured_world_size(args):
+    """num_nodes * devices_per_node from the run's settings, or None if unset."""
+    try:
+        world = int(args.num_nodes) * int(args.devices_per_node)
+    except (AttributeError, TypeError, ValueError):
+        return None
+    return world if world > 0 else None
+
+
+def pfam_splits_status(splits_dir, pfam_data_path, num_shards):
+    """'reuse' if splits_dir holds a complete set of shards written from this
+    Pfam file for this world size; 'write' if it holds no manifest.
+
+    A manifest that does NOT match raises instead of regenerating: a pre-sharded
+    directory is never overwritten with a different layout behind your back.
+    """
+    if not pfam_splits_manifest_matches(splits_dir, pfam_data_path, num_shards):
+        return "write"
     missing = [ii for ii in range(num_shards)
                if not os.path.exists(os.path.join(splits_dir, f"split_pfam_rank_{ii}.csv"))]
     if missing:
@@ -1012,6 +1033,27 @@ class Pfam_DataModule(LightningDataModule):
                 'PF11968', # 25S rRNA (adenine(2142)-N(1))-methyltransferase, Bmt2
                 'PF04153' # NOT2/NOT3/NOT5 C-terminal
         ]
+
+        # With pre-written shards (biom3.Stage1.preshard_pfam) prepare_data has
+        # nothing to do, so don't expose it. Lightning wraps any overridden
+        # prepare_data in _InfiniteBarrier, which builds a Gloo process group
+        # over EVERY rank. Gloo connects a full mesh, W^2 connections: 37 s at
+        # 768 ranks, and at 3,072 it failed 30 min in with
+        # DistNetworkError: Connection reset by peer (run2a, job 8816887).
+        # Binding the base-class method makes Lightning's is_overridden() False,
+        # so the group is never created. Every rank decides from the manifest
+        # alone (one small file, no collective), so all ranks agree; the run2
+        # job script has already checked every shard exists before launch.
+        self.pfam_splits_prewritten = False
+        world = _configured_world_size(args)
+        if world is not None and pfam_splits_manifest_matches(
+                self._resolve_splits_dir(), args.pfam_data_path, world):
+            self.prepare_data = LightningDataModule.prepare_data.__get__(self)
+            self.pfam_splits_prewritten = True
+            if get_global_rank() == 0:
+                logger.info("Pre-written Pfam splits in %s match W=%s; Lightning's "
+                            "prepare_data step (and its all-rank Gloo barrier) is skipped",
+                            self._resolve_splits_dir(), world)
 
     def _resolve_splits_dir(self) -> str:
         # Deviation from Rama's layout: prefer a user-specified splits dir so that

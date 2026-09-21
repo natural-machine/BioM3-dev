@@ -333,6 +333,17 @@ def get_model_args(parser):
                         help='Dropout rate inside the projection heads.')
     parser.add_argument('--temperature', type=float, default=0.8,
                         help='Softmax temperature for the contrastive loss.')
+    parser.add_argument('--uniformity_weight', type=float, default=0.0,
+                        help='Weight of the Wang & Isola (2020) uniformity term '
+                             'on the L2-normalized joint embeddings (pfam dataset '
+                             'types only). 0 disables it.')
+    parser.add_argument('--uniformity_t', type=float, default=2.0,
+                        help='Gaussian-potential scale t in the uniformity term. '
+                             'Its minimum in high dimension is about -2t.')
+    parser.add_argument('--uniformity_on', type=str, default='both',
+                        choices=['protein', 'text', 'both'],
+                        help='Which joint embeddings the uniformity term spreads: '
+                             'z_p, z_t, or the mean of both.')
 
     parser.add_argument('--sequence_keyword', type=str, default='protein_sequence',
                         help='CSV column name for the protein sequence.')
@@ -424,6 +435,10 @@ def retrieve_all_args(args):
     if args.dataset_type in ('pfam', 'pfam_ablated') and args.model_type == 'default':
         logger.info("Auto-setting model_type='pfam' for dataset_type=%s", args.dataset_type)
         args.model_type = 'pfam'
+    if args.uniformity_weight > 0 and args.dataset_type not in ('pfam', 'pfam_ablated'):
+        raise ValueError(
+            f"--uniformity_weight is only applied for dataset_type pfam/pfam_ablated, "
+            f"got dataset_type={args.dataset_type}")
 
     # Construct a default run_id if missing
     if args.run_id is None:

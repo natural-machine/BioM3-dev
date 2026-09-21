@@ -40,6 +40,7 @@ def prefix_paths(args):
     "argstring_fpath, expect_error_context, expected_dataset_type", [
         [f"{ARGS_DIR}/stage1_training_args_scratch_v1.txt", does_not_raise(), "default"],
         [f"{ARGS_DIR}/stage1_training_args_pfam_v1.txt", does_not_raise(), "pfam"],
+        [f"{ARGS_DIR}/stage1_training_args_pfam_uniformity_v1.txt", does_not_raise(), "pfam"],
     ],
 )
 @pytest.mark.parametrize("device", ["cuda", "xpu"])

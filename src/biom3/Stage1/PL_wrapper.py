@@ -173,6 +173,31 @@ def _sharded_inter_intra(model, z_p_all, z_t_all, micro_batch, gather_fn):
     return loss_align, logits, loss_intra, cosine, row_index
 
 
+UNIFORMITY_MODALITIES = {'protein': ('protein',), 'text': ('text',),
+                         'both': ('protein', 'text')}
+
+
+def _uniformity_losses(model, args, z_p_all, z_t_all, micro_batch, impl, gather_fn):
+    """L_unif per selected modality, on the gathered [M, D] batch.
+
+    Every rank returns the same global scalars. Dense builds all M rows;
+    sharded builds this rank's [2B, M] rows and gathers their [2B] logsumexps
+    (one collective for both modalities -- logsumexp is order-invariant, so the
+    rank-major layout of the gather does not matter).
+    """
+    t = args.uniformity_t
+    z = {'protein': z_p_all, 'text': z_t_all}
+    names = UNIFORMITY_MODALITIES[args.uniformity_on]
+    if impl != 'sharded':
+        return {n: model.compute_uniformity_loss(z[n], t) for n in names}
+    world_size = dist.get_world_size() if dist.is_initialized() else 1
+    rank = dist.get_rank() if dist.is_initialized() else 0
+    rows = _contrastive_row_index(model, micro_batch, world_size, rank, z_p_all.device)
+    lse = torch.stack([model.uniformity_row_logsumexp(z[n], rows, t) for n in names])
+    lse_all = gather_fn(lse)                                         # [W, K, 2B]
+    return {n: model.uniformity_from_row_logsumexp(lse_all[:, k].reshape(-1), t)
+            for k, n in enumerate(names)}
+
 
 def _performance_metrics_sharded(module, logits_rows, logits_cols, row_index):
     """performance_metrics() for row-sharded logits.
@@ -1104,6 +1129,28 @@ class pfam_PL_PEN_CL(pl.LightningModule):
         #print(f'Rank={dist.get_rank()}: time to process batch is {batch_time}')
         #self.log(f'batch_time_rank_{dist.get_rank()}', batch_time, on_step=True, on_epoch=False)
 
+    def _embedding_geometry(self, z_p_all, z_t_all, split):
+        """Mean embedding norms and the temperature they actually imply.
+
+        The contrastive softmax is sharpened by ||z_t|| ||z_p|| / tau, not by tau
+        alone, and nothing in the objective constrains the norms: the model can
+        buy back confidence by growing them instead of improving directions.
+        """
+        p = z_p_all.detach().norm(dim=-1).mean()
+        t = z_t_all.detach().norm(dim=-1).mean()
+        return {f'{split}_z_p_norm': p, f'{split}_z_t_norm': t,
+                f'{split}_tau_eff': self.model.temperature / (p * t)}
+
+    def _add_uniformity(self, loss, z_p_all, z_t_all, micro_batch, impl, split):
+        """loss + weight * mean_modality(L_unif); a no-op when the weight is 0."""
+        weight = getattr(self.script_args, 'uniformity_weight', 0.0)
+        if weight <= 0:
+            return loss, {}
+        losses = _uniformity_losses(self.model, self.script_args, z_p_all, z_t_all,
+                                    micro_batch, impl, _gather_with_grad)
+        loss = loss + weight * sum(losses.values()) / len(losses)
+        return loss, {f'{split}_loss_unif_{n}': v for n, v in losses.items()}
+
     def training_step(self, batch: torch.Tensor, batch_idx: any) -> dict:
         """
         Execute a single training step.
@@ -1260,6 +1307,9 @@ class pfam_PL_PEN_CL(pl.LightningModule):
             sys.stderr.write("Unexpected dataset_type value\n")
             sys.exit(1)
 
+        loss, unif_scalars = self._add_uniformity(
+            loss, z_p_all, z_t_all, z_t_swiss.shape[0], _impl, 'train')
+
         # Compute additional performance metrics.
         if _impl == 'sharded':
             # sharded logits are (rows [R,M], cols [M,R]), not a square matrix
@@ -1276,6 +1326,8 @@ class pfam_PL_PEN_CL(pl.LightningModule):
             'train_loss_text_mask': loss_text_mask,
             'train_loss_seq_mask': loss_sequence_mask,
         }
+        scalars.update(unif_scalars)
+        scalars.update(self._embedding_geometry(z_p_all, z_t_all, 'train'))
         for key, value in metric_dict.items():
             scalars['train_' + key] = value
         scalars['memory_usage'] = print_memory_usage()
@@ -1417,7 +1469,9 @@ class pfam_PL_PEN_CL(pl.LightningModule):
             sys.stderr.write("Unexpected dataset_type value\n")
             sys.exit(1)
 
-     
+        loss, unif_scalars = self._add_uniformity(
+            loss, z_p_all, z_t_all, z_t_swiss.shape[0], _impl, 'valid')
+
         # track metrics
         if _impl == 'sharded':
             metric_dict = _performance_metrics_sharded(self, logits[0], logits[1], _rows)
@@ -1432,6 +1486,8 @@ class pfam_PL_PEN_CL(pl.LightningModule):
             'valid_loss_text_mask': loss_text_mask,
             'valid_loss_seq_mask': loss_sequence_mask,
         }
+        scalars.update(unif_scalars)
+        scalars.update(self._embedding_geometry(z_p_all, z_t_all, 'valid'))
         for key, value in metric_dict.items():
             scalars['valid_' + key] = value
         scalars['memory_usage'] = print_memory_usage()

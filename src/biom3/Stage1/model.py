@@ -661,6 +661,49 @@ class pfam_PEN_CL(nn.Module):
             cosine_similarity.cpu(),
         )
 
+    # ------------------------------------------------------------------
+    # Uniformity (Wang & Isola, 2020):
+    #   L_unif = log mean_{i != j} exp(-t ||x_i - x_j||^2),  x = z / ||z||
+    # On the unit sphere ||x_i - x_j||^2 = 2 - 2 x_i.x_j, so this is a
+    # log-mean-exp of 2t * cosine, minus 2t. Pairs (i, i) and the Swiss-Prot /
+    # Pfam homolog pair (i, i +- N) are excluded, so the term never pushes
+    # apart the pairs L_intra pulls together.
+    #
+    # The loss is one global log-mean-exp, so it is assembled from per-row
+    # logsumexps: dense computes all M rows, sharded computes this rank's rows
+    # and all_gathers them (see PL_wrapper._uniformity_losses).
+    # ------------------------------------------------------------------
+
+    def uniformity_row_logsumexp(
+            self,
+            embeddings: torch.Tensor,
+            row_index: torch.Tensor,
+            t: float,
+        ) -> torch.Tensor:
+        """logsumexp_j 2t * cos(z_i, z_j) over valid j, for each i in row_index."""
+        z = F.normalize(embeddings.float(), dim=-1)
+        M = z.shape[0]
+        mask = self._homolog_mask_rows(row_index, M)
+        mask[torch.arange(row_index.numel(), device=row_index.device), row_index] = True
+        s = (2.0 * t) * (z[row_index] @ z.T)
+        return torch.logsumexp(s.masked_fill(mask, float('-inf')), dim=-1)
+
+    @staticmethod
+    def uniformity_from_row_logsumexp(row_lse: torch.Tensor, t: float) -> torch.Tensor:
+        """Combine per-row logsumexps (all M rows, any order) into L_unif."""
+        M = row_lse.numel()
+        return torch.logsumexp(row_lse, dim=0) - np.log(M * (M - 2)) - 2.0 * t
+
+    def compute_uniformity_loss(
+            self,
+            embeddings: torch.Tensor,
+            t: float = 2.0,
+        ) -> torch.Tensor:
+        """Dense L_unif over the full gathered batch [M, D], M = 2N."""
+        rows = torch.arange(embeddings.shape[0], device=embeddings.device)
+        return self.uniformity_from_row_logsumexp(
+            self.uniformity_row_logsumexp(embeddings, rows, t), t)
+
     def set_inf(
             self,
             tensor: torch.Tensor,

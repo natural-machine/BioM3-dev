@@ -233,6 +233,9 @@ The argparser declares ~50 flags. Highlights below; run `biom3_train_stage1 --he
 | `--head_lr` / `--protein_encoder_lr` / `--text_encoder_lr` | float | varies | Per-component learning rates. |
 | `--scale_learning_rate` | str | `'False'` | `'True'`/`'False'`. Scale LR by world size. |
 | `--precision` | str | `'32'` | One of `'32'`, `'16'`, `'bf16'`, `'bf16-mixed'`. |
+| `--uniformity_weight` | float | 0.0 | Weight of the Wang & Isola (2020) uniformity term on L2-normalized joint embeddings (pfam dataset types). 0 disables it. Logged as `{train,valid}_loss_unif_{protein,text}`. |
+| `--uniformity_t` | float | 2.0 | Scale `t` of the uniformity term's Gaussian potential; its high-dimensional floor is about `-2t`. |
+| `--uniformity_on` | str | `both` | `protein`, `text`, or `both` (mean of the two). |
 | `--resume_from_checkpoint` | str | `'None'` | Path to a Lightning `.ckpt` to resume from. |
 | `--pretrained_weights` | str | `'None'` | Path to a raw weights file (no optimizer state). |
 | `--wandb` | str | `'False'` | `'True'`/`'False'`. Enable wandb logging (requires `WANDB_API_KEY`). |

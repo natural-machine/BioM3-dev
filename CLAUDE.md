@@ -4,21 +4,6 @@
 
 Store session notes in docs/.claude_sessions/
 
-## Parallel development with worktrees
-
-For large features, prefer working in a git worktree branched off `addison-dev`, so multiple Claude agents can work in parallel without stepping on each other.
-
-- Worktrees live under `.claude/worktrees/<feature-name>/` (gitignored).
-- Create with: `git worktree add .claude/worktrees/<feature> -b addison-<feature> addison-dev`
-- When a feature is ready, merge its branch back into `addison-dev`. Don't commit directly to `addison-dev` from the main checkout while worktrees are active.
-- Remove finished worktrees with `git worktree remove .claude/worktrees/<feature>`.
-
-While working in a worktree:
-- Edit only the files the feature requires. If bugs are spotted in unrelated areas, note them (e.g., in the session log or a TODO) but do not fix them in this worktree — they belong to their own branch.
-- Each new worktree starts without populated `data/databases/` or `data/datasets/`. Repopulate them via the appropriate `scripts/link_*.sh` script before running anything that reads from them.
-
-Small fixes and docs edits can still be made directly on `addison-dev`.
-
 ## Project overview
 
 BioM3 is a multi-stage framework for generating novel protein sequences guided by natural language prompts (NeurIPS 2024). It combines protein language models (ESM-2), biomedical text encoders (BioBERT), and diffusion-based sequence generation.
@@ -221,12 +206,3 @@ Stage 3 training (`biom3_train_stage3`) organizes outputs under `--output_root` 
 │   └── artifacts/                    ← state_dict.best.pth copy, args.json,
 │                                       build_manifest.json, run.log
 ```
-
-### Distributed training
-Stage 3 supports multi-node training via DeepSpeed + PyTorch Lightning. The `scripts/stage3_train_multinode.sh` wrapper uses `mpiexec`. Environment variable `TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=true` is set in training scripts.
-
-## Things to watch out for
-
-- **Padding mismatch bug** (documented in `docs/bug_reports/bert_embedding_mismatch.md`): BERT text encoder must use `padding="max_length"` with `max_length=512` to match training. Dynamic padding produces different embeddings because no `attention_mask` is passed to the model.
-- **strict=False** is used when loading PenCL weights because some checkpoint keys may not match the current model graph. This is intentional but means missing/extra keys are silently ignored — be careful when changing model architecture.
-- **PL wrapper vs nn.Module**: PL wrappers store the model as `.model`. Inference scripts must unwrap to get the raw `nn.Module` for the forward pass.

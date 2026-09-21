@@ -1,26 +1,13 @@
 # BioM3 development
 
-A working project developing and investigating the [BioM3 framework](https://openreview.net/forum?id=L1MyyRCAjX) (NeurIPS 2024).
-
-## About
-
-BioM3 development is organized across several repositories:
-
-| Repository | Role | Description |
-|------------|------|-------------|
-| **BioM3-dev** (this repo) | Core library | Python package: 3-stage pipeline, dataset construction, training |
-| [BioM3-data-share](https://github.com/natural-machine/BioM3-data-share) | Shared data | Model weights, datasets, and reference databases synced across clusters |
-| [BioM3-workflow-demo](https://github.com/natural-machine/BioM3-workflow-demo) | Demo workflows | End-to-end finetuning and generation demonstration pipeline |
-| BioM3-workspace-template | Workspace setup | *(Planned)* Standardized workspace template for new research projects |
-
-See [docs/misc/biom3_ecosystem.md](./docs/misc/biom3_ecosystem.md) for cross-repo workflows, version compatibility, and shared data architecture.
+A working project developing and investigating the [BioM3 framework](https://www.biorxiv.org/content/10.1101/2024.11.11.622734v1).
 
 ## Installation and setup
 
 The `BioM3-dev` repo is available to clone from GitHub.
 
 ```bash
-git clone https://github.com/addison-nm/BioM3-dev.git && cd BioM3-dev
+git clone https://github.com/ranganathanlab/BioM3-dev.git && cd BioM3-dev
 ```
 
 ### pip install
@@ -32,25 +19,11 @@ Install the core package:
 pip install -e .
 
 # From GitHub (latest release on main)
-pip install 'biom3 @ git+https://github.com/addison-nm/BioM3-dev.git'
+pip install 'biom3 @ git+https://github.com/ranganathanlab/BioM3-dev.git'
 
-# For a reproducible build, pin to a tag from https://github.com/addison-nm/BioM3-dev/tags
-# pip install 'biom3 @ git+https://github.com/addison-nm/BioM3-dev.git@v0.1.0aN'
+# For a reproducible build, pin to a tag from https://github.com/ranganathanlab/BioM3-dev/tags
+# pip install 'biom3 @ git+https://github.com/ranganathanlab/BioM3-dev.git@v0.1.0aN'
 ```
-
-To include the Streamlit web app and visualization tools, install with the `app` extra:
-
-```bash
-# Editable install with app dependencies
-pip install -e '.[app]'
-
-# From GitHub with app dependencies
-pip install 'biom3[app] @ git+https://github.com/addison-nm/BioM3-dev.git'
-```
-
-> **Note:** The quotes around `'.[app]'` and `'biom3[app] @ ...'` are required.
-> Without them, shells like `zsh` interpret the square brackets as glob patterns
-> and the command will fail.
 
 ### Environment setup
 
@@ -75,51 +48,11 @@ For installation and setup instructions on the following machines, refer to the 
 | Polaris (ALCF) | [setup_polaris.md](./docs/setup/setup_polaris.md) |
 | Aurora (ALCF) | [setup_aurora.md](./docs/setup/setup_aurora.md) |
 | DGX Spark | [setup_spark.md](./docs/setup/setup_spark.md) |
-| Docker (AWS / Mithril GPU cloud) | [setup_docker.md](./docs/setup/setup_docker.md) |
-
-
-## Reference databases
-
-Building fine-tuning datasets with `biom3.dbio` requires access to protein reference databases (NCBI Taxonomy, Pfam, Swiss-Prot, etc.) and pre-processed training CSVs. These files are too large to commit to git and are stored in a shared directory on each machine.
-
-The local `data/databases/` directory is populated with symlinks to the shared databases using `scripts/link_data.sh` — a generic helper for linking any shared data tree (use the same script to populate `data/datasets/` from a shared datasets directory). The companion `scripts/link_weights.sh` follows the same pattern for model weights.
-
-```bash
-# Preview what will be linked
-./scripts/link_data.sh <shared_databases_path> data/databases --dry-run
-
-# Create symlinks
-./scripts/link_data.sh <shared_databases_path> data/databases
-
-# Same script for prepared datasets
-./scripts/link_data.sh <shared_datasets_path> data/datasets
-```
-
-For example, on DGX Spark:
-
-```bash
-./scripts/link_data.sh /data/data-share/BioM3-data-share/databases data/databases
-./scripts/link_data.sh /data/data-share/BioM3-data-share/datasets  data/datasets
-```
-
-Once synced, you can use `biom3_build_dataset` to construct fine-tuning datasets by subsetting Swiss-Prot and Pfam by Pfam ID, optionally enriched with UniProt annotations and taxonomy data:
-
-```bash
-# Basic extraction
-biom3_build_dataset -p PF00018 -o outputs/SH3_dataset
-
-# With UniProt-enriched captions (PROTEIN NAME, FUNCTION, GENE ONTOLOGY, etc.)
-biom3_build_dataset -p PF00018 --enrich_pfam -o outputs/SH3_dataset
-
-# With enrichment + NCBI taxonomy lineage and filtering
-biom3_build_dataset -p PF00018 --enrich_pfam --add_taxonomy --taxonomy_filter "superkingdom=Bacteria" -o outputs/SH3_bacteria
-```
-
-See [docs/setup/setup_databases.md](./docs/setup/setup_databases.md) for machine-specific shared paths, the full list of databases, and configuration details.
+| Docker | [setup_docker.md](./docs/setup/setup_docker.md) |
 
 ## Usage
 
-After the pip installation, a number of entrypoints should be available from the command line. These include scripts to run Stages 1, 2, and 3 in inference mode (plus `biom3_embedding_pipeline`, which chains Stages 1 and 2), training entrypoints for all three stages, two Stage 3 finetuning paths, RL post-training (GRPO / GDPO / DPO), dataset construction via `biom3.dbio`, and the Streamlit app.
+After the pip installation, a number of entrypoints should be available from the command line. These include scripts to run Stages 1, 2, and 3 in inference mode, training entrypoints for all three stages, and Stage 3 finetuning.
 
 > **CLI reference:** see [docs/CLI_reference.md](./docs/CLI_reference.md) for the full per-entrypoint argument tables. The walkthroughs below show common invocations; the reference covers the complete argument surface.
 
@@ -323,87 +256,6 @@ biom3_ProteoScribe_sample \
 ```
 
 GIFs are written to `outputs/animations/prompt_<P>_replica_<R>.gif`. See [docs/misc/sequence_generation_animation.md](./docs/misc/sequence_generation_animation.md) for details.
-
-### Dataset construction
-
-The `biom3.dbio` subpackage provides tools for constructing fine-tuning datasets from local protein databases. The main entrypoint is `biom3_build_dataset`, which subsets the Swiss-Prot and Pfam training CSVs by one or more Pfam IDs.
-
-**Arguments:**
-
-| Flag | Long form | Required | Description |
-| ---- | --------- | -------- | ----------- |
-| `-p` | `--pfam_ids` | Yes | One or more Pfam IDs to extract (e.g. `PF00018 PF00169`) |
-| `-o` | `--outdir` | Yes | Output directory (created if it doesn't exist) |
-| | `--swissprot` | No | Path to Swiss-Prot CSV (default: from `configs/dbio_config.json`) |
-| | `--pfam` | No | Path to Pfam CSV (default: from config) |
-| | `--enrich_pfam` | No | Enrich Pfam captions with UniProt annotations (API by default) |
-| | `--uniprot_dat` | No | Use local `.dat.gz` file(s) instead of API. Accepts multiple paths for full coverage (e.g. Swiss-Prot + TrEMBL) |
-| | `--add_taxonomy` | No | Add NCBI taxonomy lineage to Pfam captions (local, no API) |
-| | `--taxonomy_filter` | No | Filter by taxonomy rank (e.g. `"superkingdom=Bacteria"`) |
-| | `--chunk_size` | No | Pfam CSV chunk size (default: 500000) |
-
-#### Example: build an SH3 domain dataset
-
-```bash
-biom3_build_dataset \
-    -p PF00018 \
-    -o outputs/SH3_dataset
-```
-
-#### Example: with taxonomy lineage and filtering
-
-```bash
-biom3_build_dataset \
-    -p PF00018 \
-    --add_taxonomy \
-    --taxonomy_filter "superkingdom=Bacteria" \
-    -o outputs/SH3_bacteria
-```
-
-#### Example: multiple Pfam IDs with UniProt enrichment
-
-```bash
-biom3_build_dataset \
-    -p PF00018 PF07714 \
-    --enrich_pfam \
-    --add_taxonomy \
-    -o outputs/SH3_Pkinase
-```
-
-#### Example: offline enrichment with local `.dat` files
-
-```bash
-biom3_build_dataset \
-    -p PF00018 \
-    --enrich_pfam \
-    --uniprot_dat data/databases/swissprot/uniprot_sprot.dat.gz \
-                  data/databases/swissprot/uniprot_trembl.dat.gz \
-    -o outputs/SH3_dataset
-```
-
-A separate utility builds a SQLite index for fast taxonomy lookups:
-
-```bash
-biom3_build_taxid_index data/databases/ncbi_taxonomy/prot.accession2taxid.gz
-```
-
-### Web app and visualization
-
-BioM3 includes a Streamlit web app for browsing data and visualizing protein structures, and a Python visualization library for 3D structure rendering and sequence analysis.
-
-Install with the `app` extra (see [Installation](#pip-install)):
-
-```bash
-pip install -e '.[app]'
-```
-
-Launch the web app:
-
-```bash
-biom3_app
-```
-
-See [docs/misc/web_app.md](./docs/misc/web_app.md) for app pages, configuration, and architecture. See [docs/misc/structure_visualization.md](./docs/misc/structure_visualization.md) for the `biom3.viz` Python API (3D rendering, structural alignment, BLAST, unmasking-order visualization).
 
 ## Contributing
 

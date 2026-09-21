@@ -120,6 +120,23 @@ def parse_arguments(args):
                         help="Per-position metric boxes to add to the animation. "
                              "Currently supported: 'confidence' (derived from "
                              "--store_probabilities). Multiple metrics are stacked.")
+    parser.add_argument('--save_animation_frames', action='store_true', default=False,
+                        help="Also save the per-step token trajectory for each "
+                             "animated (prompt, replica) as a JSON record "
+                             "(token vocab + frames[step][position] token "
+                             "indices, index 0 == '-' being the still-masked "
+                             "state), next to the GIF in --animation_dir. "
+                             "The record also carries, per amino-acid position, "
+                             "the model's probability for that residue from the "
+                             "step it was placed to the last step. Recorded for "
+                             "the animated pairs only, so runs without this flag "
+                             "do no extra work. Lightweight and faithful to the "
+                             "realized path; intended for downstream interactive "
+                             "rendering.")
+    parser.add_argument('--no_gif', action='store_true', default=False,
+                        help="Skip rendering GIF animations. Useful with "
+                             "--save_animation_frames when only the trajectory "
+                             "data is wanted and the (slow, large) GIF is not.")
     parser.add_argument('--store_probabilities', action='store_true', default=False,
                         help="Store per-step conditional probabilities for each "
                              "(prompt, replica) pair as .npz files. "
@@ -205,18 +222,26 @@ def parse_animate_replicas(value):
 
 
 def resolve_animate_prompts(parsed, num_prompts):
-    """Resolve parsed prompt spec to a set of indices, or None if animation is off."""
+    """Resolve parsed prompt spec to a set of indices, or None if animation is off.
+
+    Out-of-range indices are dropped with a warning rather than raised, so a
+    caller asking to animate "the first N" without knowing the run's exact
+    prompt count (as a dispatcher expanding a count into 0..N-1 does) caps to
+    what exists instead of failing the job at Stage 3. When nothing valid
+    remains, animation is off. Mirrors resolve_animate_replicas' clamping.
+    """
     if parsed is None:
         return None
     if parsed == 'all':
         return set(range(num_prompts))
-    invalid = [i for i in parsed if not (0 <= i < num_prompts)]
-    if invalid:
-        raise ValueError(
-            f"--animate_prompts indices out of range: {invalid} "
-            f"(valid range: 0–{num_prompts - 1})"
+    valid = {i for i in parsed if 0 <= i < num_prompts}
+    dropped = [i for i in parsed if not (0 <= i < num_prompts)]
+    if dropped:
+        logger.warning(
+            "--animate_prompts indices out of range dropped: %s (valid range 0–%d)",
+            dropped, num_prompts - 1,
         )
-    return set(parsed)
+    return valid or None
 
 
 def resolve_animate_replicas(parsed, num_replicas):
@@ -232,6 +257,71 @@ def resolve_animate_replicas(parsed, num_replicas):
         )
         parsed = num_replicas
     return set(range(parsed))
+
+
+# Vocabulary entries that are not amino acids: the still-masked state and the
+# structural tokens. Positions that end on one of these get no confidence
+# series — there is no residue to be confident about, and the PAD tail would
+# otherwise dominate the record.
+_NON_RESIDUE_TOKENS = frozenset(('-', '<START>', '<END>', '<PAD>'))
+
+
+def _confidence_series(final_frame, tokens, token_probs):
+    """One entry per position: the probability trace of the residue placed there.
+
+    Each entry runs from the step the position was unmasked to the last step,
+    so its first value is the probability the residue was drawn with and the
+    rest are the model's later readings of a residue it can now see (see
+    ``TokenProbRecorder`` — those are out-of-sample). ``None`` for a position
+    that does not end on an amino acid, or that was never sampled (an
+    in-painting template residue). Rounded to 3 decimals, which is finer than
+    the bf16 forward pass resolves.
+    """
+    series = []
+    for pos, placed in enumerate(token_probs.placed_at.tolist()):
+        token = tokens[int(final_frame[pos])]
+        if placed < 0 or token in _NON_RESIDUE_TOKENS:
+            series.append(None)
+            continue
+        series.append([round(float(v), 3) for v in token_probs.values[placed:, pos]])
+    return series
+
+
+def save_animation_frames(animation_frames, tokens, animation_dir, confidence=None):
+    """Write one JSON trajectory record per animated (prompt, replica) pair.
+
+    Each ``prompt_{p}_replica_{r}.json`` carries the token vocabulary and
+    ``frames[step][position]`` token indices (index 0 == '-', the still-masked
+    state that resolves to a residue as the step count rises). The frames are
+    the realized sampled path, faithful in a way an argmax over stored
+    probabilities would not be.
+
+    ``confidence`` maps a pair to its ``TokenProbRow``, recorded only when the
+    caller asked for it. A pair that has one also gets a ``confidence`` field:
+    one entry per position, as described in ``_confidence_series``. Returns the
+    paths written, in iteration order.
+    """
+    os.makedirs(animation_dir, exist_ok=True)
+    written = []
+    for (p_idx, r_idx), frames in animation_frames.items():
+        record = {
+            "prompt_index": int(p_idx),
+            "replica_index": int(r_idx),
+            "tokens": list(tokens),
+            "frames": [np.asarray(f).astype(int).tolist() for f in frames],
+        }
+        token_probs = (confidence or {}).get((p_idx, r_idx))
+        if token_probs is not None:
+            record["confidence"] = _confidence_series(
+                np.asarray(frames[-1]).astype(int), tokens, token_probs,
+            )
+        json_path = os.path.join(
+            animation_dir, f"prompt_{p_idx}_replica_{r_idx}.json")
+        with open(json_path, "w") as fh:
+            json.dump(record, fh, separators=(",", ":"))
+        logger.info("Animation frames saved: %s (%d steps)", json_path, len(frames))
+        written.append(json_path)
+    return written
 
 
 _PRE_UNMASK_SUPPORTED_STRATEGIES = ("last_k",)
@@ -471,6 +561,7 @@ def batch_stage3_generate_sequences(
         animate_prompts: set = None,
         animate_replicas: set = None,
         store_probabilities: bool = False,
+        record_confidence: bool = False,
     ) -> tuple:
     """Generate protein sequences in batches using a denoising model.
 
@@ -495,6 +586,10 @@ def batch_stage3_generate_sequences(
         store_probabilities: When True, the per-step conditional
             distributions and final frames are captured for every
             (prompt, replica) pair and returned in ``results``.
+        record_confidence: When True, the animated pairs — and only those —
+            also record, at every step, the model's probability for the token
+            then at each position (see ``TokenProbRecorder``). Off by default,
+            so an ordinary run does no extra work.
 
     Returns:
         dict: rank-local results with keys
@@ -510,6 +605,9 @@ def batch_stage3_generate_sequences(
             animation is disabled. Stays rank-local — every rank writes
             its own GIFs into the shared output dir (filenames embed
             global ``(p_idx, r_idx)`` so collisions are impossible).
+          * ``animation_confidence``: ``{(p_idx, r_idx): TokenProbRow}`` for the
+            animated pairs when ``record_confidence=True``. Empty otherwise.
+            Rank-local, like ``animation_frames``.
           * ``tokens``: token vocabulary list (index → string).
           * ``stored_probs``: ``{(p_idx, r_idx): np.ndarray [steps, seq_len, num_classes]}``
             of per-step conditional distributions, populated when
@@ -561,6 +659,7 @@ def batch_stage3_generate_sequences(
 
     animate = animate_prompts is not None and animate_replicas is not None
     animation_frames = {}  # (p_idx, r_idx) -> list of numpy arrays, one per diffusion step
+    animation_confidence = {}  # (p_idx, r_idx) -> TokenProbRow, when record_confidence
     stored_probs = {}      # (p_idx, r_idx) -> np.ndarray [steps, seq_len, num_classes]
     stored_final_frames = {}  # (p_idx, r_idx) -> np.ndarray [seq_len], final token indices
 
@@ -589,6 +688,17 @@ def batch_stage3_generate_sequences(
             offset = _pre_revealed_offset(args, diffusion_steps)
             extract_time = torch.full((len(batch),), offset, dtype=torch.long)
 
+            # Per-step token probabilities, for the animated rows of this batch
+            # only. A batch holding none of them records nothing.
+            anim_rows = [
+                i for i, (_, p_idx, r_idx) in enumerate(batch)
+                if animate and p_idx in animate_prompts and r_idx in animate_replicas
+            ] if record_confidence else []
+            recorder = (
+                Stage3_sample_tools.TokenProbRecorder(rows=anim_rows)
+                if anim_rows else None
+            )
+
             if unmasking_order in ('confidence', 'confidence_no_pad'):
                 mask_realization_list, _, batch_probs = Stage3_sample_tools.batch_generate_denoised_sampled_confidence(
                     args=args,
@@ -599,6 +709,7 @@ def batch_stage3_generate_sequences(
                     store_probabilities=store_probabilities,
                     skip_pad=(unmasking_order == 'confidence_no_pad'),
                     sample_seeds=sample_seeds,
+                    token_prob_recorder=recorder,
                 )
             else:
                 mask_realization_list, _, batch_probs = Stage3_sample_tools.batch_generate_denoised_sampled(
@@ -610,6 +721,7 @@ def batch_stage3_generate_sequences(
                     sampling_path=batch_perms,
                     store_probabilities=store_probabilities,
                     sample_seeds=sample_seeds,
+                    token_prob_recorder=recorder,
                 )
 
             # Unpack results into rank-local sparse dict
@@ -624,6 +736,8 @@ def batch_stage3_generate_sequences(
                         mask_realization_list[step][i][0].copy()
                         for step in range(diffusion_steps)
                     ]
+                    if recorder is not None:
+                        animation_confidence[(p_idx, r_idx)] = recorder.row(i)
 
                 if batch_probs is not None:
                     # batch_probs shape: [steps, batch, seq_len, num_classes]
@@ -660,6 +774,7 @@ def batch_stage3_generate_sequences(
 
     results = {
         "animation_frames": animation_frames,
+        "animation_confidence": animation_confidence,
         "tokens": tokens,
         "stored_probs": stored_probs,
         "stored_final_frames": stored_final_frames,
@@ -876,6 +991,7 @@ def main(args, _setup_logging=True):
 
     # sample sequences
     store_probs = getattr(config_args_parser, 'store_probabilities', False)
+    save_frames = getattr(config_args_parser, 'save_animation_frames', False)
     results = batch_stage3_generate_sequences(
             args=config_args,
             model=model,
@@ -883,6 +999,7 @@ def main(args, _setup_logging=True):
             animate_prompts=animate_prompts_set,
             animate_replicas=animate_replicas_set,
             store_probabilities=store_probs,
+            record_confidence=save_frames,
     )
     animation_frames = results["animation_frames"]
     tokens = results["tokens"]
@@ -926,41 +1043,50 @@ def main(args, _setup_logging=True):
                         fh.write(f">{prompt_key}_replica_{r_idx} seed={seed}\n{seq}\n")
             logger.info("Merged FASTA written to %s", merged_path)
 
-    # Generate GIF animations
+    # Save / render animations for the selected (prompt, replica) pairs.
     if animation_frames:
         animation_dir = config_args_parser.animation_dir or os.path.join(outdir, "animations")
-        animation_style = getattr(config_args_parser, 'animation_style', 'brightness')
-        requested_metrics = getattr(config_args_parser, 'animation_metrics', None) or []
-        if (animation_style != 'brightness' or requested_metrics) and not stored_probs:
-            logger.warning("--animation_style=%s / --animation_metrics requires "
-                           "--store_probabilities; falling back to default animation",
-                           animation_style)
         os.makedirs(animation_dir, exist_ok=True)
-        logger.info("Saving %d animation(s) to %s", len(animation_frames), animation_dir)
-        for (p_idx, r_idx), frames in animation_frames.items():
-            gif_path = os.path.join(animation_dir, f"prompt_{p_idx}_replica_{r_idx}.gif")
-            frame_probs = stored_probs.get((p_idx, r_idx)) if stored_probs else None
 
-            # Build metric annotations for this (prompt, replica)
-            metrics = []
-            if frame_probs is not None and requested_metrics:
-                for name in requested_metrics:
-                    if name == "confidence":
-                        metrics.append(
-                            Stage3_ani_tools.confidence_metric(frame_probs))
-                    else:
-                        logger.warning("Unknown animation metric %r, skipping", name)
-
-            Stage3_ani_tools.generate_sequence_animation(
-                frames=frames,
-                tokens=tokens,
-                output_path=gif_path,
-                probs=frame_probs,
-                prob_style=animation_style,
-                metrics=metrics or None,
-                title=f"Prompt {p_idx} \u00b7 Replica {r_idx}",
+        # Per-step token trajectory, for downstream interactive rendering.
+        if getattr(config_args_parser, 'save_animation_frames', False):
+            save_animation_frames(
+                animation_frames, tokens, animation_dir,
+                confidence=results["animation_confidence"],
             )
-            logger.info("Animation saved: %s", gif_path)
+
+        if not getattr(config_args_parser, 'no_gif', False):
+            animation_style = getattr(config_args_parser, 'animation_style', 'brightness')
+            requested_metrics = getattr(config_args_parser, 'animation_metrics', None) or []
+            if (animation_style != 'brightness' or requested_metrics) and not stored_probs:
+                logger.warning("--animation_style=%s / --animation_metrics requires "
+                               "--store_probabilities; falling back to default animation",
+                               animation_style)
+            logger.info("Saving %d GIF animation(s) to %s", len(animation_frames), animation_dir)
+            for (p_idx, r_idx), frames in animation_frames.items():
+                gif_path = os.path.join(animation_dir, f"prompt_{p_idx}_replica_{r_idx}.gif")
+                frame_probs = stored_probs.get((p_idx, r_idx)) if stored_probs else None
+
+                # Build metric annotations for this (prompt, replica)
+                metrics = []
+                if frame_probs is not None and requested_metrics:
+                    for name in requested_metrics:
+                        if name == "confidence":
+                            metrics.append(
+                                Stage3_ani_tools.confidence_metric(frame_probs))
+                        else:
+                            logger.warning("Unknown animation metric %r, skipping", name)
+
+                Stage3_ani_tools.generate_sequence_animation(
+                    frames=frames,
+                    tokens=tokens,
+                    output_path=gif_path,
+                    probs=frame_probs,
+                    prob_style=animation_style,
+                    metrics=metrics or None,
+                    title=f"Prompt {p_idx} \u00b7 Replica {r_idx}",
+                )
+                logger.info("Animation saved: %s", gif_path)
 
     # Save per-step conditional probabilities
     if stored_probs:

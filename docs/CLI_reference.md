@@ -237,6 +237,8 @@ The argparser declares ~50 flags. Highlights below; run `biom3_train_stage1 --he
 | `--uniformity_t` | float | 2.0 | Scale `t` of the uniformity term's Gaussian potential; its high-dimensional floor is about `-2t`. |
 | `--uniformity_on` | str | `both` | `protein`, `text`, or `both` (mean of the two). |
 | `--log_uniformity` | str | `'False'` | `'True'`/`'False'`. Measure and log the uniformity term without training on it, so a weight-0 control reports the same metric. Implied when the weight is > 0. |
+| `--mask_same_sequence` | str | `'False'` | `'True'`/`'False'`. Drop candidates whose protein sequence is identical to the anchor's from the contrastive denominator. Swiss-Prot carries ~8.9 caption variants per accession, so ~5.6% of rows have such a false negative in the pooled batch. |
+| `--mask_same_family` | str | `'False'` | `'True'`/`'False'`. Drop candidates drawn on the same Pfam family as the anchor. At M = 49,152 a row has ~25 of these, against the single `(i, i±N)` homolog the index rule already covers; for L_PFC they are the items it exists to pull together. Both flags default off so Run 1 stays reproducible. |
 | `--resume_from_checkpoint` | str | `'None'` | Path to a Lightning `.ckpt` to resume from. |
 | `--pretrained_weights` | str | `'None'` | Path to a raw weights file (no optimizer state). |
 | `--wandb` | str | `'False'` | `'True'`/`'False'`. Enable wandb logging (requires `WANDB_API_KEY`). |

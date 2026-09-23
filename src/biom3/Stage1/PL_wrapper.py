@@ -125,6 +125,40 @@ def _gather_four(module, a, b, c, d):
     return tuple(out[:, i * B:(i + 1) * B, :].reshape(-1, D) for i in range(4))
 
 
+def _gather_keys(module, swiss_cols, pfam_cols):
+    """[M, K] int64 false-negative keys, in the same layout as z_*_all.
+
+    Each rank holds [B] keys for its Swiss-Prot rows and [B] for its Pfam rows;
+    they are stacked to [2B, K], gathered in ONE collective, then split back so
+    the result is [swiss block ; pfam block], rank-major -- the layout
+    _contrastive_row_index assumes.
+
+    Cheap: 2 int64 columns over M = 49,152 rows is 786 KB, against ~200 MB for
+    the four embedding tensors already gathered every step. Keys carry no
+    gradient, so this does not go through _gather_with_grad.
+    """
+    if not swiss_cols:
+        return None
+    swiss = torch.stack(swiss_cols, dim=-1)                      # [B, K]
+    pfam = torch.stack(pfam_cols, dim=-1)                        # [B, K]
+    B, K = swiss.shape
+    out = module.all_gather(torch.cat((swiss, pfam), dim=0), sync_grads=False)
+    out = out.reshape(-1, 2 * B, K)                              # [W, 2B, K]
+    return torch.cat((out[:, :B].reshape(-1, K), out[:, B:].reshape(-1, K)), dim=0)
+
+
+def _stage1_keys(module, swiss_seq, pfam_seq, family):
+    """Assemble and gather whatever false-negative keys the config enables."""
+    args = module.script_args
+    sc, pc = [], []
+    if getattr(args, 'mask_same_sequence', False):
+        sc.append(swiss_seq.long()); pc.append(pfam_seq.long())
+    if getattr(args, 'mask_same_family', False):
+        # Both halves of a pair carry the family the pair was drawn on.
+        sc.append(family.long()); pc.append(family.long())
+    return _gather_keys(module, sc, pc)
+
+
 def _contrastive_row_index(module, micro_batch, world_size, rank, device):
     """Global row indices this rank owns in the gathered [2*W*B, D] batch.
 
@@ -137,7 +171,7 @@ def _contrastive_row_index(module, micro_batch, world_size, rank, device):
     return torch.cat([swiss, swiss + N])
 
 
-def _sharded_inter_intra(model, z_p_all, z_t_all, micro_batch, gather_fn):
+def _sharded_inter_intra(model, z_p_all, z_t_all, micro_batch, gather_fn, keys=None):
     """Row-sharded L_GC and L_PFC, equal to the dense pair (see
     tests/stage1_tests/test_sharded_contrastive.py -- values AND gradients).
 
@@ -159,7 +193,7 @@ def _sharded_inter_intra(model, z_p_all, z_t_all, micro_batch, gather_fn):
     # only compute its own rows' normalisers; gather them. sync_grads=True is
     # required -- targets is differentiable in the dense path, so detaching here
     # would match the forward and silently change the backward.
-    lz = model.inter_row_logsumexp(z_p_all, z_t_all, row_index)      # [2B]
+    lz = model.inter_row_logsumexp(z_p_all, z_t_all, row_index, keys)  # [2B]
     # One gather, not two: gathering [2B] gives [W, 2B], and column-slicing that
     # is exactly what gathering the two halves separately produced.
     lz_all = gather_fn(lz).reshape(-1, 2 * micro_batch)              # [W, 2B]
@@ -168,9 +202,9 @@ def _sharded_inter_intra(model, z_p_all, z_t_all, micro_batch, gather_fn):
     row_logZ = torch.cat([lz_swiss, lz_pfam])                        # [M]
 
     loss_align, logits = model.compute_inter_loss_sharded(
-        z_p_all, z_t_all, N, row_index, row_logZ)
+        z_p_all, z_t_all, N, row_index, row_logZ, keys)
     loss_intra, cosine = model.compute_intra_loss_sharded(
-        z_p_all, N, row_index)
+        z_p_all, N, row_index, keys)
     return loss_align, logits, loss_intra, cosine, row_index
 
 
@@ -1202,7 +1236,8 @@ class pfam_PL_PEN_CL(pl.LightningModule):
             # are the BERT attention masks marking real tokens vs [PAD].
             text_batch, protein_batch, text_mask_batch, protein_mask_batch, \
             pfam_text_batch, pfam_protein_batch, pfam_text_mask_batch, pfam_protein_mask_batch, \
-            bool_pfam_vector, text_attn_mask, pfam_text_attn_mask = batch
+            bool_pfam_vector, text_attn_mask, pfam_text_attn_mask, \
+            swiss_seq_key, pfam_seq_key, family_key = batch
     
 
         #print(f'rank={dist.get_rank()}: text size {text_batch.shape}')
@@ -1236,6 +1271,7 @@ class pfam_PL_PEN_CL(pl.LightningModule):
         # Concatenate Swiss-Prot and Pfam embeddings.
         z_t_all = torch.cat((z_t_swiss_all, z_t_pfam_all), dim=0)
         z_p_all = torch.cat((z_p_swiss_all, z_p_pfam_all), dim=0)
+        keys = _stage1_keys(self, swiss_seq_key, pfam_seq_key, family_key)
         
         # Timer start
         #start_time_loss_computation = time.time()
@@ -1245,13 +1281,14 @@ class pfam_PL_PEN_CL(pl.LightningModule):
         if _impl == 'sharded':
             loss_align, logits, loss_intra, cosine_similarity, _rows = _sharded_inter_intra(
                 self.model, z_p_all, z_t_all, z_t_swiss.shape[0],
-                _gather_with_grad,
+                _gather_with_grad, keys,
             )
         else:
             loss_align, logits = self.model.compute_inter_loss(
                 protein_embeddings=z_p_all,
                 text_embeddings=z_t_all,
-                batch_size=z_p_all.shape[0] // 2
+                batch_size=z_p_all.shape[0] // 2,
+                keys=keys
             )
         # Timer end and log
         #end_time_loss_computation = time.time()
@@ -1262,7 +1299,8 @@ class pfam_PL_PEN_CL(pl.LightningModule):
         if _impl != 'sharded':
             loss_intra, cosine_similarity = self.model.compute_intra_loss(
                 protein_embeddings=z_p_all,
-                batch_size=z_p_all.shape[0] // 2
+                batch_size=z_p_all.shape[0] // 2,
+                keys=keys
             )
 
         # Concatenate batches for masked language modeling.
@@ -1379,7 +1417,8 @@ class pfam_PL_PEN_CL(pl.LightningModule):
             # are the BERT attention masks marking real tokens vs [PAD].
             text_batch, protein_batch, text_mask_batch, protein_mask_batch, \
             pfam_text_batch, pfam_protein_batch, pfam_text_mask_batch, pfam_protein_mask_batch, \
-            bool_pfam_vector, text_attn_mask, pfam_text_attn_mask = batch
+            bool_pfam_vector, text_attn_mask, pfam_text_attn_mask, \
+            swiss_seq_key, pfam_seq_key, family_key = batch
 
         
         # forward pass over the swiss-prot data
@@ -1405,6 +1444,7 @@ class pfam_PL_PEN_CL(pl.LightningModule):
         # concatenate swiss-prot <> pfam embeddings
         z_t_all = torch.cat((z_t_swiss_all, z_t_pfam_all), dim=0)
         z_p_all = torch.cat((z_p_swiss_all, z_p_pfam_all), dim=0)
+        keys = _stage1_keys(self, swiss_seq_key, pfam_seq_key, family_key)
 
         # Validation must take the same sharded branch as training. The dense
         # call below it builds the full M x M matrix on EVERY rank, M = 2*W*B:
@@ -1414,20 +1454,22 @@ class pfam_PL_PEN_CL(pl.LightningModule):
         if _impl == 'sharded':
             loss_align, logits, loss_intra, cosine_similarity, _rows = _sharded_inter_intra(
                 self.model, z_p_all, z_t_all, z_t_swiss.shape[0],
-                _gather_with_grad,
+                _gather_with_grad, keys,
             )
         else:
             # compute inter-modal loss values
             loss_align, logits = self.model.compute_inter_loss(
                                                 protein_embeddings=z_p_all,
                                                 text_embeddings=z_t_all,
-                                                batch_size=z_p_all.shape[0] // 2
+                                                batch_size=z_p_all.shape[0] // 2,
+                                                keys=keys
             )
 
             # compute intra-modal loss values
             loss_intra, cosine_similarity = self.model.compute_intra_loss(
                                                 protein_embeddings=z_p_all,
-                                                batch_size=z_p_all.shape[0] // 2
+                                                batch_size=z_p_all.shape[0] // 2,
+                                                keys=keys
             )
 
         # concatenate batch samples

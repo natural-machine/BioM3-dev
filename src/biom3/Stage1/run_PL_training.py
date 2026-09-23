@@ -333,6 +333,19 @@ def get_model_args(parser):
                         help='Dropout rate inside the projection heads.')
     parser.add_argument('--temperature', type=float, default=0.8,
                         help='Softmax temperature for the contrastive loss.')
+    parser.add_argument('--mask_same_sequence', type=str, default='False',
+                        help="'True'/'False'. Exclude candidates whose protein "
+                             'sequence is identical to the anchor\'s from the '
+                             'contrastive denominator. Swiss-Prot carries ~8.9 '
+                             'caption variants per accession, so ~5.6% of rows '
+                             'have such a false negative in the pooled batch.')
+    parser.add_argument('--mask_same_family', type=str, default='False',
+                        help="'True'/'False'. Exclude candidates drawn on the "
+                             'same Pfam family as the anchor. At M = 49,152 a '
+                             'row has ~25 of these against the single (i, i+-N) '
+                             'pair the homolog index rule already covers; for '
+                             'L_PFC they are the very items it exists to pull '
+                             'together. Defaults off so Run 1 is reproducible.')
     parser.add_argument('--uniformity_weight', type=float, default=0.0,
                         help='Weight of the Wang & Isola (2020) uniformity term '
                              'on the L2-normalized joint embeddings (pfam dataset '
@@ -419,6 +432,8 @@ def retrieve_all_args(args):
     args.wandb = str_to_bool(args.wandb)
     args.save_metrics_history = str_to_bool(args.save_metrics_history)
     args.log_uniformity = str_to_bool(args.log_uniformity)
+    args.mask_same_sequence = str_to_bool(args.mask_same_sequence)
+    args.mask_same_family = str_to_bool(args.mask_same_family)
     args.metrics_history_all_ranks_val_loss = str_to_bool(
         args.metrics_history_all_ranks_val_loss
     )

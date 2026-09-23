@@ -340,6 +340,11 @@ def get_model_args(parser):
     parser.add_argument('--uniformity_t', type=float, default=2.0,
                         help='Gaussian-potential scale t in the uniformity term. '
                              'Its minimum in high dimension is about -2t.')
+    parser.add_argument('--log_uniformity', type=str, default='False',
+                        help="'True'/'False'. Compute and log the uniformity term "
+                             'without adding it to the loss, so a weight-0 control '
+                             'run reports the same metric as a weighted one. '
+                             'Implied when --uniformity_weight > 0.')
     parser.add_argument('--uniformity_on', type=str, default='both',
                         choices=['protein', 'text', 'both'],
                         help='Which joint embeddings the uniformity term spreads: '
@@ -413,6 +418,7 @@ def retrieve_all_args(args):
     args.scale_learning_rate = parse_lr_scaling(args.scale_learning_rate)
     args.wandb = str_to_bool(args.wandb)
     args.save_metrics_history = str_to_bool(args.save_metrics_history)
+    args.log_uniformity = str_to_bool(args.log_uniformity)
     args.metrics_history_all_ranks_val_loss = str_to_bool(
         args.metrics_history_all_ranks_val_loss
     )

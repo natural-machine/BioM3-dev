@@ -15,6 +15,7 @@ else:
     from pytorch_lightning import Trainer, seed_everything
 
 # misc functions
+from contextlib import nullcontext
 import itertools
 import matplotlib.pyplot as plt
 import numpy as np
@@ -1142,13 +1143,20 @@ class pfam_PL_PEN_CL(pl.LightningModule):
                 f'{split}_tau_eff': self.model.temperature / (p * t)}
 
     def _add_uniformity(self, loss, z_p_all, z_t_all, micro_batch, impl, split):
-        """loss + weight * mean_modality(L_unif); a no-op when the weight is 0."""
+        """loss + weight * mean_modality(L_unif); a no-op when the weight is 0.
+
+        With log_uniformity and weight 0 the term is measured but not trained on,
+        so a control run reports the same metric as a weighted one.
+        """
         weight = getattr(self.script_args, 'uniformity_weight', 0.0)
-        if weight <= 0:
+        log_only = weight <= 0 and getattr(self.script_args, 'log_uniformity', False)
+        if weight <= 0 and not log_only:
             return loss, {}
-        losses = _uniformity_losses(self.model, self.script_args, z_p_all, z_t_all,
-                                    micro_batch, impl, _gather_with_grad)
-        loss = loss + weight * sum(losses.values()) / len(losses)
+        with torch.no_grad() if log_only else nullcontext():
+            losses = _uniformity_losses(self.model, self.script_args, z_p_all, z_t_all,
+                                        micro_batch, impl, _gather_with_grad)
+        if not log_only:
+            loss = loss + weight * sum(losses.values()) / len(losses)
         return loss, {f'{split}_loss_unif_{n}': v for n, v in losses.items()}
 
     def training_step(self, batch: torch.Tensor, batch_idx: any) -> dict:

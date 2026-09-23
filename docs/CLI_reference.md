@@ -236,6 +236,7 @@ The argparser declares ~50 flags. Highlights below; run `biom3_train_stage1 --he
 | `--uniformity_weight` | float | 0.0 | Weight of the Wang & Isola (2020) uniformity term on L2-normalized joint embeddings (pfam dataset types). 0 disables it. Logged as `{train,valid}_loss_unif_{protein,text}`. |
 | `--uniformity_t` | float | 2.0 | Scale `t` of the uniformity term's Gaussian potential; its high-dimensional floor is about `-2t`. |
 | `--uniformity_on` | str | `both` | `protein`, `text`, or `both` (mean of the two). |
+| `--log_uniformity` | str | `'False'` | `'True'`/`'False'`. Measure and log the uniformity term without training on it, so a weight-0 control reports the same metric. Implied when the weight is > 0. |
 | `--resume_from_checkpoint` | str | `'None'` | Path to a Lightning `.ckpt` to resume from. |
 | `--pretrained_weights` | str | `'None'` | Path to a raw weights file (no optimizer state). |
 | `--wandb` | str | `'False'` | `'True'`/`'False'`. Enable wandb logging (requires `WANDB_API_KEY`). |

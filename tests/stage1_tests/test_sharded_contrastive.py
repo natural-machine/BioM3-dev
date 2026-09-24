@@ -210,6 +210,24 @@ def test_uniformity_wrapper_helper_single_process():
     assert set(_uniformity_losses(m, args, z_p, z_t, B, 'dense', _gather_with_grad)) == {'protein'}
 
 
+def test_uniformity_skipped_for_a_single_pair():
+    """M = 2 leaves no pair after the self/homolog exclusion, so L_unif is NaN;
+    the term must be skipped, not added to the loss."""
+    from argparse import Namespace
+    from types import SimpleNamespace
+    from biom3.Stage1.PL_wrapper import pfam_PL_PEN_CL
+    host = SimpleNamespace(model=_Stub(0.8), script_args=Namespace(
+        uniformity_weight=0.5, uniformity_t=2.0, uniformity_on='both'))
+    loss = torch.tensor(1.0)
+    for impl in ('dense', 'sharded'):
+        out, logged = pfam_PL_PEN_CL._add_uniformity(
+            host, loss, torch.randn(2, 16), torch.randn(2, 16), 1, impl, 'train')
+        assert out is loss and logged == {}, impl
+        out, logged = pfam_PL_PEN_CL._add_uniformity(
+            host, loss, torch.randn(4, 16), torch.randn(4, 16), 2, impl, 'train')
+        assert torch.isfinite(out) and len(logged) == 2, impl
+
+
 if __name__ == "__main__":
     for W, B in ((1, 4), (2, 3), (4, 2), (8, 2), (3, 5)):
         pr_i, pr_a, gl_i, gl_a = _run(W, B)

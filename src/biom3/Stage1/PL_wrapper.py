@@ -1177,7 +1177,9 @@ class pfam_PL_PEN_CL(pl.LightningModule):
                 f'{split}_tau_eff': self.model.temperature / (p * t)}
 
     def _add_uniformity(self, loss, z_p_all, z_t_all, micro_batch, impl, split):
-        """loss + weight * mean_modality(L_unif); a no-op when the weight is 0.
+        """loss + weight * mean_modality(L_unif); a no-op when the weight is 0,
+        and when the gathered batch is a single pair (M = 2): no pair survives
+        the self/homolog exclusion, so L_unif would be NaN.
 
         With log_uniformity and weight 0 the term is measured but not trained on,
         so a control run reports the same metric as a weighted one.
@@ -1185,6 +1187,8 @@ class pfam_PL_PEN_CL(pl.LightningModule):
         weight = getattr(self.script_args, 'uniformity_weight', 0.0)
         log_only = weight <= 0 and getattr(self.script_args, 'log_uniformity', False)
         if weight <= 0 and not log_only:
+            return loss, {}
+        if z_p_all.shape[0] <= 2:
             return loss, {}
         with torch.no_grad() if log_only else nullcontext():
             losses = _uniformity_losses(self.model, self.script_args, z_p_all, z_t_all,

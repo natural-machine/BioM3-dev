@@ -187,6 +187,30 @@ def _invariants():
     return bad
 
 
+def test_masked_losses_match_reference():
+    for W, B in ((1, 4), (2, 3), (4, 2), (3, 5)):
+        e_d, e_s = _run(W, B)
+        assert e_d < TOL, f"W={W} B={B}: dense vs reference {e_d}"
+        assert e_s < TOL, f"W={W} B={B}: sharded vs reference {e_s}"
+
+
+def test_no_keys_reproduces_unmasked_objective():
+    for W, B in ((2, 3), (4, 2)):
+        e_d, e_s = _run(W, B, keys=False)
+        assert e_d < TOL, f"W={W} B={B}: dense vs reference {e_d}"
+        assert e_s < TOL, f"W={W} B={B}: sharded vs reference {e_s}"
+
+
+def test_masked_sharded_grads_match_dense():
+    for W, B in ((2, 3), (3, 5)):
+        d = _run_grad(W, B)
+        assert d < GRAD_TOL, f"W={W} B={B}: gradient mismatch {d}"
+
+
+def test_positive_never_masked_and_no_key_inert():
+    assert _invariants() == []
+
+
 if __name__ == "__main__":
     print("keys ON  -- model dense vs reference, and sharded vs dense")
     for W, B in ((1, 4), (2, 3), (4, 2), (3, 5)):

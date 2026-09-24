@@ -6,11 +6,14 @@ otherwise switching to sharded silently changes the objective.
 
 Runs on CPU with tiny tensors -- no distributed, no XPU.
 """
+import pytest
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from biom3.Stage1.model import pfam_PEN_CL
+
+pytestmark = pytest.mark.usefixtures("no_process_group")
 
 
 class _Stub(pfam_PEN_CL):

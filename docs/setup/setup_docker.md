@@ -35,18 +35,19 @@ docker run --rm biom3:cuda pytest tests/ --quick
 
 ## Supplying weights and data
 
-Not baked into the image. Either bind-mount host dirs (default) or sync from an object
-store. `docker/run.sh` mounts the conventional layout (`weights/` ro, `data/` ro,
-`outputs/` rw). Populate `weights/` per
-[`setup_shared_weights.md`](./setup_shared_weights.md). See
-[`docker/README.md`](../../docker/README.md) for the sync-from-S3 option and the
-recommended host-side staging pattern for spot instances.
+Not baked into the image, and getting them onto the host is up to you. `docker/run.sh`
+mounts the conventional layout (`weights/` ro, `data/` ro, `outputs/` rw). Populate
+`weights/` per [`setup_shared_weights.md`](./setup_shared_weights.md). If `weights/` or
+`data/` holds symlinks to elsewhere on the host, mount those locations too with
+`BIOM3_BIND_EXTRA`; see [`docker/README.md`](../../docker/README.md), which also covers
+the published GHCR weights bundle.
 
 ## Usage
 
-`docker/run.sh <command…>` runs on a GPU host with the standard mounts and forwards
-`WANDB_API_KEY` / `NGPU` / `AWS_*`. `environment.sh` is sourced inside the container
-automatically (it auto-detects `BIOM3_MACHINE=container`).
+`docker/run.sh <command…>` runs on a GPU host with the standard mounts, forwards
+`WANDB_API_KEY` / `NGPU`, and runs as the calling user so files written to `outputs/`
+are owned by you (`BIOM3_AS_ROOT=1` runs as root instead). The image sets
+`BIOM3_MACHINE=container`, which the training wrappers use to pick their launcher.
 
 ```bash
 # Train Stage 3 (single GPU)

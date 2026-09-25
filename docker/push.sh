@@ -14,7 +14,7 @@
 # SINGLE-ARCH ONLY: a local image holds one architecture, so this publishes the
 # architecture you built on. That suits the amd64-only xpu variant. For the cuda
 # variant, which ships as a multi-arch manifest list, publish with
-#   docker/build.sh --variant cuda --awscli --release
+#   docker/build.sh --variant cuda --release
 # which builds every architecture in one pass and pushes both tags itself. This
 # script REFUSES to overwrite a multi-arch <variant>-dev (see --force-dev), since
 # doing so would strip an architecture off the tag cloud jobs pull.
@@ -90,7 +90,7 @@ if [[ "${REMOTE_PLATFORMS}" -gt 1 && "${FORCE_DEV}" -eq 0 ]]; then
     echo "ERROR: ${MOVING_TAG} is a multi-arch manifest list; pushing this" >&2
     echo "       single-arch image over it would strip the other architecture(s)." >&2
     echo "       Publish multi-arch instead:" >&2
-    echo "         docker/build.sh --variant ${VARIANT} --awscli --release" >&2
+    echo "         docker/build.sh --variant ${VARIANT} --release" >&2
     echo "       Or pass --force-dev to replace it deliberately." >&2
     exit 1
 fi

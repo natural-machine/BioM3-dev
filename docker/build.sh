@@ -8,7 +8,7 @@
 #
 # PUBLISHING: --release builds every architecture in one pass and pushes the
 # conventional GHCR tags. This is how the public image is published:
-#   docker/build.sh --variant cuda --awscli --release
+#   docker/build.sh --variant cuda --release
 #     -> ghcr.io/natural-machine/biom3:cuda-dev      (moving; what cloud/*.yaml track)
 #     -> ghcr.io/natural-machine/biom3:cuda-<sha>    (immutable, per commit)
 # Both tags are one multi-arch manifest list, so amd64 and arm64 hosts pull the
@@ -16,7 +16,7 @@
 # buildx builder (see docker/README.md).
 #
 # USAGE:
-#   docker/build.sh [--variant V] [--platform P] [--tag T] [--awscli] [--push]
+#   docker/build.sh [--variant V] [--platform P] [--tag T] [--push]
 #                   [--release [--repo R] [--allow-dirty]] [-- <buildx args>]
 #
 #   --variant V    cuda | cpu | xpu (default: cuda). Selects docker/Dockerfile.<V>
@@ -27,7 +27,6 @@
 #                  the variant supports under --release). Cross-arch builds
 #                  need QEMU/binfmt registered in the buildx builder.
 #   --tag T        image tag (default: biom3:<variant>). Not valid with --release.
-#   --awscli       bake awscli in (for the entrypoint's S3 sync hook)
 #   --push         push to the registry instead of loading locally
 #                  (required for multi-platform builds — buildx --load is
 #                  single-platform only)
@@ -53,7 +52,6 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 VARIANT="cuda"
 PLATFORM=""
 TAG=""
-AWSCLI="false"
 PUSH=0
 RELEASE=0
 REPO="ghcr.io/natural-machine/biom3"
@@ -65,13 +63,12 @@ while [[ $# -gt 0 ]]; do
         --variant)     VARIANT="$2"; shift 2 ;;
         --platform)    PLATFORM="$2"; shift 2 ;;
         --tag)         TAG="$2"; shift 2 ;;
-        --awscli)      AWSCLI="true"; shift ;;
         --push)        PUSH=1; shift ;;
         --release)     RELEASE=1; shift ;;
         --repo)        REPO="$2"; shift 2 ;;
         --allow-dirty) ALLOW_DIRTY=1; shift ;;
         --)            shift; EXTRA=("$@"); break ;;
-        -h|--help)     sed -n '3,45p' "$0"; exit 0 ;;
+        -h|--help)     sed -n '3,44p' "$0"; exit 0 ;;
         *)             echo "Unknown arg: $1" >&2; exit 1 ;;
     esac
 done
@@ -126,7 +123,7 @@ else
     TAGS=("${TAG:-biom3:${VARIANT}}")
 fi
 
-ARGS=(buildx build -f "${DOCKERFILE}" --build-arg "INSTALL_AWSCLI=${AWSCLI}")
+ARGS=(buildx build -f "${DOCKERFILE}")
 for t in "${TAGS[@]}"; do ARGS+=(-t "${t}"); done
 
 [[ -n "${PLATFORM}" ]] && ARGS+=(--platform "${PLATFORM}")

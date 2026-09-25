@@ -17,7 +17,7 @@ for the bare-metal multi-node path.
 - The public CUDA image on GHCR: `ghcr.io/natural-machine/biom3:cuda-dev`. It is a
   multi-arch manifest list, so Polaris pulls the `linux/amd64` half automatically. If
   it is not already pushed, publish it from any Docker host (either architecture):
-  `docker/build.sh --variant cuda --awscli --release` — see
+  `docker/build.sh --variant cuda --release` — see
   [docker/README.md](../../docker/README.md#publishing-to-ghcr) for the build-host
   requirements.
 - No GHCR login needed for the pull (the image is public).

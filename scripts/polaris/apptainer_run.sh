@@ -77,7 +77,7 @@ ARGS+=("${SIF}")
 
 # The CUDA image bakes `BIOM3_MACHINE=container` (for AWS/Mithril). Unset it so
 # environment.sh's /grand fingerprint selects `polaris` instead. `exec` (not
-# `run`) bypasses the S3-sync entrypoint; we source environment.sh ourselves.
+# `run`) bypasses the image entrypoint; we source environment.sh ourselves.
 # The passed command runs from /app with "$@" preserved.
 set -- bash -lc 'cd /app && unset BIOM3_MACHINE && source environment.sh >&2 && exec "$@"' _ "$@"
 

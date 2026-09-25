@@ -110,7 +110,7 @@ ENVS+=(--env "BIOM3_LAUNCHER=${BIOM3_LAUNCHER:-container}")
 
 [[ -n "${WANDB_API_KEY:-}" ]] && ENVS+=(--env "WANDB_API_KEY=${WANDB_API_KEY}")
 
-# `exec` (not `run`) so we bypass the S3-sync entrypoint and instead source
+# `exec` (not `run`) so we bypass the image entrypoint and instead source
 # environment.sh ourselves — that is what applies the Aurora oneCCL/xccl vars.
 # The passed command runs from /app with "$@" preserved.
 set -- bash -lc 'cd /app && source environment.sh >&2 && exec "$@"' _ "$@"

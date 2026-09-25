@@ -1,7 +1,8 @@
-# BioM3 Docker image (AWS / Mithril GPU cloud)
+# BioM3 Docker images
 
 Recipes for running BioM3 — **training (all stages), finetuning, and generation** — in a
-container on commercial GPU cloud (AWS GPU instances, Mithril), e.g. spot instances.
+container on any Docker host with a GPU: a workstation, or a cloud GPU instance (AWS,
+Mithril).
 
 **One image, all uses.** A single CUDA image holds the full BioM3 install; you pick what
 to run at `docker run` time. Built per architecture:
@@ -27,11 +28,11 @@ to run at `docker run` time. Built per architecture:
 | `Dockerfile.cpu` | The slim CPU-only **inference** image: `ubuntu:24.04` → py3.12 → torch 2.8 (cpu) → BioM3, from `requirements/container-cpu.txt`. Embedding, manifold fitting/scoring and Stage 3 sampling. **Not a training image** (no wandb/tensorboard/mpi4py) and no streamlit `app` extra. |
 | `Dockerfile.xpu` | The Intel XPU variant, for Aurora single-node. Ubuntu + pip wheels. **amd64 only** — there are no arm64 Intel GPU wheels. |
 | `Dockerfile.xpu-oneapi` | Second Aurora variant, built on `intel/oneapi-hpckit` so the container's Intel MPI matches the host launcher's. Exists because multi-node collectives never complete in the `xpu` image. **amd64 only.** |
-| `Dockerfile.<variant>.dockerignore` | Trims the build context (BuildKit picks it up per-Dockerfile). |
-| `entrypoint.sh` | Sources `environment.sh`, runs the optional object-store sync, then exec's your command. |
-| `build.sh` | `docker buildx` wrapper (variant, platform, tag, awscli, push) and the GHCR publish path (`--release`). |
+| [`../.dockerignore`](../.dockerignore) | One ignore file for every variant (the build context is the repo root). Trims the context and keeps gitignored local files such as `configs/jobs/local.env` out of the image. |
+| `entrypoint.sh` | Optionally pulls a published GHCR weights bundle, then exec's your command. |
+| `build.sh` | `docker buildx` wrapper (variant, platform, tag, push) and the GHCR publish path (`--release`). |
 | `push.sh` | Publishes an already-built **single-arch** image under the GHCR tags. For the xpu variant; see [Publishing](#publishing-to-ghcr). |
-| `run.sh` | `docker run` wrapper for GPU hosts: standard mounts + env passthrough. |
+| `run.sh` | `docker run` wrapper: standard mounts, extra mounts (`BIOM3_BIND_EXTRA`), runs as the calling user, env passthrough. |
 | `docker-compose.yml` | Optional services for the streamlit `app` (port 8501) and a `shell`. |
 
 ---
@@ -49,9 +50,6 @@ docker/build.sh                      # tags biom3:cuda
 # Explicit platform:
 docker/build.sh --platform linux/amd64
 docker/build.sh --platform linux/arm64
-
-# Bake in awscli for the S3 sync hook (off by default):
-docker/build.sh --awscli
 
 # The slim CPU-only inference image:
 docker/build.sh --variant cpu           # tags biom3:cpu
@@ -79,7 +77,7 @@ architecture:
 
 ```bash
 echo "$GHCR_TOKEN" | docker login ghcr.io -u <github-user> --password-stdin
-docker/build.sh --variant cuda --awscli --release
+docker/build.sh --variant cuda --release
 docker buildx imagetools inspect ghcr.io/natural-machine/biom3:cuda-dev
 ```
 
@@ -113,12 +111,13 @@ The full runbook — token creation, package visibility, anonymous-pull verifica
 ## Getting weights and data into the container
 
 BioM3 needs pretrained **weights** (ESM-2 + BioBERT + per-stage checkpoints) and, for
-training, **datasets**. Neither is baked into the image. Two ways to supply them:
+training, **datasets**. Neither is baked into the image. Getting them onto the host is up
+to you; the image assumes nothing about where they come from. Two ways to hand them to
+the container:
 
-### 1. Bind-mount (default, cloud-agnostic)
+### 1. Bind-mount from the host (default)
 
-Stage the files on the host (an attached EBS / Mithril volume) and mount them.
-`docker/run.sh` wires up the conventional layout automatically:
+`docker/run.sh` mounts the conventional layout automatically:
 
 | Host (default) | Container | Mode | Contents |
 | --- | --- | --- | --- |
@@ -131,33 +130,42 @@ Override the host dirs with `BIOM3_WEIGHTS_DIR`, `BIOM3_DATA_DIR`, `BIOM3_OUTPUT
 `BIOM3_CONFIGS_DIR`. The weights layout mirrors
 [`docs/setup/setup_shared_weights.md`](../docs/setup/setup_shared_weights.md).
 
-### 2. Object-store sync (optional, for fresh spot instances)
+**Symlinked weights or data.** A symlink inside a mounted directory is resolved *inside*
+the container, so if `weights/` or `data/` holds absolute links to files elsewhere on the
+host, those locations must be mounted too, at the same path. List them in
+`BIOM3_BIND_EXTRA` (comma-separated; each is mounted read-only at the same path). To see
+where your links point:
 
-The entrypoint can pull weights/data from an object store on container start. Default
-path uses `aws s3 sync` (build with `--awscli`); any other tool works via
-`BIOM3_SYNC_CMD`. Set on `docker run` (or export before `docker/run.sh`):
+```bash
+find weights data -type l -exec readlink {} + | cut -d/ -f1-4 | sort | uniq -c
+```
 
-| Env var | Effect |
-| --- | --- |
-| `BIOM3_WEIGHTS_URI` | e.g. `s3://bucket/biom3/weights` → synced to `/app/weights`. |
-| `BIOM3_DATA_URI` | e.g. `s3://bucket/biom3/data` → synced to `/app/data`. |
-| `BIOM3_WEIGHTS_INCLUDES` | space-separated `--include` globs (weights only); narrows the sync. |
-| `BIOM3_SYNC_MODE` | `auto` (default; skip if dir already populated) \| `always` \| `never`. |
-| `BIOM3_SYNC_CMD` | custom pull command (`rclone`, `gsutil`, …); receives `$BIOM3_SYNC_URI`, `$BIOM3_SYNC_DEST`. |
-| `BIOM3_OUTPUTS_PUSH_URI` | push `/app/outputs` here on exit (best-effort; a mounted volume is the primary persistence). |
-| `AWS_ENDPOINT_URL` | point `aws` at an S3-compatible store (Mithril, MinIO, …). |
+then, for example:
 
-> **Recommended for spot:** the simplest robust pattern is host-side staging — your
-> instance bootstrap pulls weights/datasets to a local dir, then `docker/run.sh`
-> bind-mounts them. The container then needs no cloud tools or credentials.
+```bash
+BIOM3_BIND_EXTRA=/shared/biom3-data,/shared/models docker/run.sh <command>
+```
+
+Without them the links dangle inside the container, and the failure surfaces as a
+missing file or, for a local Hugging Face model directory, as a malformed repo id.
+
+### 2. The published GHCR weights bundle
+
+`BIOM3_WEIGHTS_BUNDLE=run1_base` makes the entrypoint `oras pull`
+`ghcr.io/natural-machine/biom3-weights:run1_base` into `/app/weights` when the container
+starts; no credentials are needed. The pull writes into the image's own `/app/weights`,
+so the container must run as root (`BIOM3_AS_ROOT=1` with `run.sh`). On a host you reuse,
+fetch the bundle once instead and mount it: see
+[`docs/setup/weights_bundle.md`](../docs/setup/weights_bundle.md).
 
 ---
 
 ## Run
 
 `docker/run.sh <command...>` assembles `docker run --gpus all` with the mounts above and
-forwards `WANDB_API_KEY`, `NGPU`, and `AWS_*`/`BIOM3_*` env vars. Examples below use it;
-the raw `docker run` equivalents are in the per-section notes.
+forwards `WANDB_API_KEY`, `NGPU` and the weights-bundle variables. It runs the container
+as the calling user, so files written to `outputs/` are owned by you; set
+`BIOM3_AS_ROOT=1` to run as root instead. Examples below use it.
 
 Requires the **NVIDIA Container Toolkit** on the host (`--gpus all`).
 
@@ -251,45 +259,12 @@ docker/run.sh bash
 # or: docker compose -f docker/docker-compose.yml run --rm shell
 ```
 
-### Spot instance with S3, no persistent disk (e.g. Mithril)
-
-When there's no persistent volume, pull inputs from S3 on start and push results
-back on exit. Mithril gives you an SSH GPU VM (Ubuntu, x86) — ensure Docker + the
-NVIDIA Container Toolkit, then:
-
-```bash
-# Build with awscli so the entrypoint can sync (off by default):
-docker/build.sh --awscli --platform linux/amd64
-
-# Credentials reach the container via env vars (forwarded) or ~/.aws (bind-mounted):
-export AWS_ACCESS_KEY_ID=...  AWS_SECRET_ACCESS_KEY=...  AWS_DEFAULT_REGION=us-east-2
-
-# S3 trees mirror the local weights/ and data/ layout:
-export BIOM3_WEIGHTS_URI=s3://your-bucket/biom3/weights
-export BIOM3_DATA_URI=s3://your-bucket/biom3/data
-export BIOM3_OUTPUTS_PUSH_URI=s3://your-bucket/biom3/outputs/run001
-export BIOM3_WEIGHTS_INCLUDES="LLMs/* ProteoScribe/*"   # optional: narrow the pull
-
-docker/run.sh scripts/stage3_train_singlenode.sh \
-    configs/stage3_training/pretrain_scratch_v1.json 1 cuda run001 --epochs 1 --max_steps 5
-```
-
-`run.sh` skips the `weights/`/`data/` bind-mounts when their `*_URI` is set, so the
-entrypoint syncs into the container's own dirs. Two caveats for the disk-less model:
-
-- `docker run --rm` re-pulls weights each run. While iterating, use `docker/run.sh bash`
-  (sync once, run many commands, push on exit) or a Docker named volume for
-  `/app/weights` (`BIOM3_SYNC_MODE=auto` then skips the re-pull).
-- The outputs push is **best-effort on exit** — fine for a short test, but a spot
-  preemption can kill a long run before the final push. Periodic checkpoint upload is
-  the real fix (a follow-up).
-
 ---
 
 ## How it works inside the container
 
-- The image sets `ENV BIOM3_MACHINE=container`. The entrypoint sources `environment.sh`,
-  which honors that value and applies the (minimal) container settings.
+- The cuda and cpu images set `ENV BIOM3_MACHINE=container`, which the training wrappers
+  read to choose `scripts/launchers/container_singlenode.sh`.
 - **Single-node multi-GPU uses `torchrun`, not `mpiexec`/PBS.**
   `scripts/launchers/container_singlenode.sh`: 1 GPU → `exec` directly; N GPUs →
   `torchrun --standalone --nproc-per-node=N`, which sets `RANK`/`LOCAL_RANK`/`WORLD_SIZE`

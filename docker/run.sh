@@ -43,6 +43,8 @@
 #                      mounted when BIOM3_WEIGHTS_BUNDLE is set)
 #   BIOM3_DATA_DIR     host data dir     (default: ./data,    mounted ro)
 #   BIOM3_OUTPUTS_DIR  host outputs dir  (default: ./outputs, mounted rw)
+#   BIOM3_TESTS_TMP    host dir for the test suite's scratch, mounted rw at
+#                      /app/tests/_tmp (default: <outputs>/tests_tmp)
 #   BIOM3_CONFIGS_DIR  host configs dir  (optional; overrides baked-in configs)
 #   BIOM3_BIND_EXTRA   comma-separated host paths, each mounted read-only at the
 #                      same path in the container. An entry containing ':' is
@@ -61,6 +63,7 @@ GPUS="${BIOM3_GPUS:-all}"
 W="${BIOM3_WEIGHTS_DIR:-$PWD/weights}"
 D="${BIOM3_DATA_DIR:-$PWD/data}"
 O="${BIOM3_OUTPUTS_DIR:-$PWD/outputs}"
+T="${BIOM3_TESTS_TMP:-${O}/tests_tmp}"
 C="${BIOM3_CONFIGS_DIR:-}"
 
 # Device kind: explicit override, else infer from the image tag (":xpu" -> xpu).
@@ -74,7 +77,7 @@ else
     DEVICE_KIND="cuda"
 fi
 
-mkdir -p "${O}"
+mkdir -p "${O}" "${T}"
 
 ARGS=(run --rm)
 [[ -t 0 && -t 1 ]] && ARGS+=(-it)
@@ -95,6 +98,9 @@ fi
 [[ -d "${W}" && -z "${BIOM3_WEIGHTS_BUNDLE:-}" ]] && ARGS+=(-v "${W}:/app/weights:ro")
 [[ -d "${D}" ]] && ARGS+=(-v "${D}:/app/data:ro")
 ARGS+=(-v "${O}:/app/outputs")
+# The test suite writes its scratch inside the image, which the calling user
+# cannot write to.
+ARGS+=(-v "${T}:/app/tests/_tmp")
 [[ -n "${C}" ]] && ARGS+=(-v "${C}:/app/configs:ro")
 
 # Checked here because docker silently creates a missing bind source as an

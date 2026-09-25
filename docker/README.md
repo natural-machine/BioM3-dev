@@ -124,6 +124,7 @@ the container:
 | `./weights` | `/app/weights` | ro | `LLMs/`, `PenCL/`, `Facilitator/`, `ProteoScribe/` |
 | `./data` | `/app/data` | ro | training datasets (CSV / HDF5) |
 | `./outputs` | `/app/outputs` | **rw** | checkpoints, logs, generated sequences |
+| `./outputs/tests_tmp` | `/app/tests/_tmp` | **rw** | the test suite's scratch (`BIOM3_TESTS_TMP` overrides) |
 | `./configs` | `/app/configs` | ro | *(optional)* overrides the configs baked into the image |
 
 Override the host dirs with `BIOM3_WEIGHTS_DIR`, `BIOM3_DATA_DIR`, `BIOM3_OUTPUTS_DIR`,

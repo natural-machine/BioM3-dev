@@ -32,6 +32,8 @@ def prefix_paths(args):
         args.pfam_data_path = os.path.join(DATDIR, args.pfam_data_path)
     if args.output_root is not None:
         args.output_root = os.path.join(TMPDIR, args.output_root)
+    if args.pfam_splits_dir is not None:
+        args.pfam_splits_dir = os.path.join(TMPDIR, args.pfam_splits_dir)
     if args.pretrained_weights is not None:
         args.pretrained_weights = os.path.join(DATDIR, args.pretrained_weights)
 

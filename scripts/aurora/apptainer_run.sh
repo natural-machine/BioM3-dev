@@ -31,6 +31,7 @@
 #   BIOM3_WEIGHTS_DIR  host weights dir bound to /app/weights (ro)
 #   BIOM3_DATA_DIR     host data dir    bound to /app/data    (ro)
 #   BIOM3_OUTPUTS_DIR  host outputs dir bound to /app/outputs (rw; default ./outputs)
+#   BIOM3_TESTS_TMP    host dir bound to /app/tests/_tmp (rw; default <outputs>/tests_tmp)
 #   BIOM3_CONFIGS_DIR  host configs dir bound to /app/configs (ro; overrides baked-in)
 #   BIOM3_BIND_EXTRA   extra colon/comma paths to --bind (e.g. a checkpoints root)
 #   BIOM3_FI_PROVIDER  libfabric provider (default tcp; cxi needs host binds)
@@ -41,7 +42,7 @@
 set -euo pipefail
 
 [[ $# -ge 1 ]] || { echo "USAGE: $0 <command...>   (see --help header)" >&2; exit 1; }
-[[ "$1" == "-h" || "$1" == "--help" ]] && { sed -n '3,40p' "$0"; exit 0; }
+[[ "$1" == "-h" || "$1" == "--help" ]] && { sed -n '3,41p' "$0"; exit 0; }
 
 SIF="${BIOM3_SIF:-./biom3_xpu.sif}"
 [[ -f "${SIF}" ]] || { echo "ERROR: sif '${SIF}' not found. Build it (on a login node):" >&2
@@ -51,7 +52,8 @@ SIF="${BIOM3_SIF:-./biom3_xpu.sif}"
 command -v apptainer >/dev/null 2>&1 || { echo "ERROR: apptainer not found." >&2; exit 1; }
 
 O="${BIOM3_OUTPUTS_DIR:-$PWD/outputs}"
-mkdir -p "${O}"
+T="${BIOM3_TESTS_TMP:-${O}/tests_tmp}"
+mkdir -p "${O}" "${T}"
 
 # --- Binds ---------------------------------------------------------------
 # /flare   : ALCF Lustre; also what environment.sh fingerprints to pick `aurora`.
@@ -59,7 +61,9 @@ mkdir -p "${O}"
 # Do NOT bind /dev/dri. Apptainer mounts /dev by default; adding /dev/dri as a
 # user bind remounts it `nodev`, so the GPU character devices become unusable
 # and torch.xpu.device_count() returns 0 (clinfo -l also comes back empty).
-BINDS=("${O}:/app/outputs")
+# /app/tests/_tmp: the test suite writes its scratch inside the image, and the
+# --writable-tmpfs overlay is too small for it ("No space left on device").
+BINDS=("${O}:/app/outputs" "${T}:/app/tests/_tmp")
 # /lus alongside /flare: on Aurora /flare IS /lus/flare/projects, and the
 # weights/ and data/ trees are symlinks whose targets are spelled /lus/...
 # Binding only /flare leaves every one of them dangling inside the container --

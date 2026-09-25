@@ -33,6 +33,7 @@
 #   BIOM3_WEIGHTS_DIR  host weights dir bound to /app/weights (ro)
 #   BIOM3_DATA_DIR     host data dir    bound to /app/data    (ro)
 #   BIOM3_OUTPUTS_DIR  host outputs dir bound to /app/outputs (rw; default ./outputs)
+#   BIOM3_TESTS_TMP    host dir bound to /app/tests/_tmp (rw; default <outputs>/tests_tmp)
 #   BIOM3_CONFIGS_DIR  host configs dir bound to /app/configs (ro; overrides baked-in)
 #   BIOM3_BIND_EXTRA   extra colon/comma paths to --bind (e.g. an /eagle root)
 #   WANDB_API_KEY      forwarded into the container if set
@@ -41,7 +42,7 @@
 set -euo pipefail
 
 [[ $# -ge 1 ]] || { echo "USAGE: $0 <command...>   (see --help header)" >&2; exit 1; }
-[[ "$1" == "-h" || "$1" == "--help" ]] && { sed -n '3,40p' "$0"; exit 0; }
+[[ "$1" == "-h" || "$1" == "--help" ]] && { sed -n '3,41p' "$0"; exit 0; }
 
 SIF="${BIOM3_SIF:-./biom3_cuda.sif}"
 [[ -f "${SIF}" ]] || { echo "ERROR: sif '${SIF}' not found. Build it (on a compute node):" >&2
@@ -51,11 +52,14 @@ SIF="${BIOM3_SIF:-./biom3_cuda.sif}"
 command -v apptainer >/dev/null 2>&1 || { echo "ERROR: apptainer not found ('module load' it on the compute node)." >&2; exit 1; }
 
 O="${BIOM3_OUTPUTS_DIR:-$PWD/outputs}"
-mkdir -p "${O}"
+T="${BIOM3_TESTS_TMP:-${O}/tests_tmp}"
+mkdir -p "${O}" "${T}"
 
 # --- Binds ---------------------------------------------------------------
 # /grand : ALCF Lustre; also what environment.sh fingerprints to pick `polaris`.
-BINDS=("${O}:/app/outputs")
+# /app/tests/_tmp: the test suite writes its scratch inside the image, and the
+# --writable-tmpfs overlay is too small for it ("No space left on device").
+BINDS=("${O}:/app/outputs" "${T}:/app/tests/_tmp")
 [[ -d /grand ]] && BINDS+=("/grand")
 [[ -n "${BIOM3_WEIGHTS_DIR:-}" ]] && BINDS+=("${BIOM3_WEIGHTS_DIR}:/app/weights:ro")
 [[ -n "${BIOM3_DATA_DIR:-}"    ]] && BINDS+=("${BIOM3_DATA_DIR}:/app/data:ro")

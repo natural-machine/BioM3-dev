@@ -96,7 +96,21 @@ matching `num_devices=12` in the PBS templates), and sources `environment.sh`
 inside the container — which fingerprints `/flare` to select the `aurora` profile
 and apply the oneCCL/`xccl`/NUMEXPR settings.
 
-### 4. Run a stage (single node)
+### 4. Run the test suite
+
+```bash
+BIOM3_WEIGHTS_DIR=./weights BIOM3_DATA_DIR=./data \
+scripts/aurora/apptainer_run.sh pytest tests/ --include_requires_gpu
+```
+
+The tests write their scratch into the image at `/app/tests/_tmp`. The wrapper mounts
+`<outputs>/tests_tmp` there (override with `BIOM3_TESTS_TMP`), because the
+`--writable-tmpfs` overlay that absorbs other writes is too small for the suite.
+Everything a run writes therefore lands under the outputs directory; point
+`BIOM3_OUTPUTS_DIR` at a scratch location to keep test files out of your real
+`outputs/`.
+
+### 5. Run a stage (single node)
 
 ```bash
 BIOM3_WEIGHTS_DIR=./weights BIOM3_DATA_DIR=./data \
@@ -238,3 +252,9 @@ and the container recipe in `_misc/sample_script.sh`.
   (`/app/tests/_tmp`, `.pytest_cache`). `apptainer_run.sh` passes
   `--writable-tmpfs` (an ephemeral RAM-backed overlay) to absorb these; if you
   invoke `apptainer exec` by hand, add `--writable-tmpfs` yourself.
+- **`OSError: [Errno 28] No space left on device` in the test suite.** The
+  `--writable-tmpfs` overlay is small. `apptainer_run.sh` mounts `<outputs>/tests_tmp`
+  at `/app/tests/_tmp` for this; if you invoke `apptainer exec` by hand, bind a host
+  dir there yourself (`--bind <dir>:/app/tests/_tmp`).
+- **`Failed to create user namespace` on `apptainer exec`.** You are on a login
+  node. Building the `.sif` works there, but running it needs a compute node.

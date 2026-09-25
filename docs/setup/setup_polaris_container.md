@@ -96,6 +96,7 @@ and data are read-only. See the script header for all `BIOM3_*` knobs.
   The `.sif` is read-only, and some code writes into the image tree
   (`/app/tests/_tmp`, `.pytest_cache`). `apptainer_run.sh` passes
   `--writable-tmpfs` (an ephemeral RAM-backed overlay) to absorb these; if you
-  invoke `apptainer exec` by hand, add `--writable-tmpfs` yourself. If your site
-  disables overlay support, bind a writable host dir instead, e.g.
-  `--bind $PWD/_tmp:/app/tests/_tmp`.
+  invoke `apptainer exec` by hand, add `--writable-tmpfs` yourself. The test suite
+  writes more than that overlay holds, so `apptainer_run.sh` also mounts
+  `<outputs>/tests_tmp` at `/app/tests/_tmp` (override with `BIOM3_TESTS_TMP`); by
+  hand, add `--bind <dir>:/app/tests/_tmp`.

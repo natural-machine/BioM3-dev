@@ -443,9 +443,11 @@ class PL_PEN_CL(pl.LightningModule):
         erank_text = self.compute_effective_rank(sigma_ks=S_text)
         erank_protein = self.compute_effective_rank(sigma_ks=S_protein)
         
-        # log erank metrics
-        self.log('valid_erank_text', erank_text, sync_dist=True)
-        self.log('valid_erank_protein', erank_protein, sync_dist=True)
+        # log erank metrics. The singular values are computed on CPU above, so
+        # the effective ranks land there too; sync_dist all-reduces whatever it
+        # is given, and an XPU process group has no backend for a CPU tensor.
+        self.log('valid_erank_text', erank_text.to(self.device), sync_dist=True)
+        self.log('valid_erank_protein', erank_protein.to(self.device), sync_dist=True)
 
 
     def configure_optimizers(self,):

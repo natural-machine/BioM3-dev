@@ -26,7 +26,7 @@
 #
 # EXAMPLES:
 #   # single node, 12 tiles (use this first to validate the path)
-#   NGPU_PER_NODE=12 NGPU_TOTAL=12 \
+#   NGPU_PER_NODE=12 NGPU_TOTAL=12 BIOM3_RANK_SOURCE=mpi \
 #   BIOM3_IMAGE=/flare/NLDesignProtein/$USER/biom3_xpu-oneapi.sif \
 #   scripts/aurora/apptainer_mpi_run.sh \
 #       biom3_train_stage3 --config_path configs/stage3_training/pretrain_scratch_v1.json \
@@ -35,8 +35,13 @@
 #   # two nodes, 24 tiles
 #   NGPU_PER_NODE=12 NGPU_TOTAL=24 ... (same, --num_nodes 2 --run_id mpi002)
 #
+#   BIOM3_RANK_SOURCE=mpi is the native path for the xpu-oneapi image, whose
+#   Intel MPI matches the launcher's; every example here uses it. The `pals`
+#   default is for the xpu image, which has no such MPI. See BIOM3_RANK_SOURCE
+#   under ENV below.
+#
 #   # GDPO on two nodes: ONE rank per node, each owning all 12 local tiles
-#   NGPU_PER_NODE=1 NGPU_TOTAL=2 BIOM3_RANK_LAYOUT=node \
+#   NGPU_PER_NODE=1 NGPU_TOTAL=2 BIOM3_RANK_LAYOUT=node BIOM3_RANK_SOURCE=mpi \
 #   BIOM3_IMAGE=/flare/NLDesignProtein/$USER/biom3_xpu-oneapi.sif \
 #   scripts/aurora/apptainer_mpi_run.sh biom3_gdpo_train --config_path configs/grpo/...
 #
@@ -45,6 +50,9 @@
 #   NGPU_TOTAL         total ranks across all nodes (required)
 #   BIOM3_RANK_LAYOUT  tile (default) = 1 rank/tile, Stage 3 train + generate;
 #                      node = 1 rank/node with all 12 tiles, GDPO/GRPO
+#   BIOM3_RANK_SOURCE  mpi = Lightning's MPIEnvironment via mpi4py, the native
+#                      path for xpu-oneapi; pals (default) translates the PALS
+#                      rank vars into torch's for images without a matching MPI
 #   PBS_NODEFILE       set by PBS; required for >1 node
 #   BIOM3_IMAGE        path to the .sif (default: ./biom3_xpu.sif; the older
 #                      BIOM3_SIF is still read)

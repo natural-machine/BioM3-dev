@@ -69,7 +69,8 @@ BIND_ARG="$(IFS=,; echo "${BINDS[*]}")"
 # tests/_tmp) succeed; real outputs still go to the bind-mounted /app/outputs.
 # Built as one array so an unset WANDB_API_KEY doesn't leave an empty
 # "${ENVS[@]}" to expand under set -u.
-ARGS=(exec --nv --writable-tmpfs --bind "${BIND_ARG}")
+# `--quiet` drops apptainer's INFO lines; its warnings and errors still print.
+ARGS=(--quiet exec --nv --writable-tmpfs --bind "${BIND_ARG}")
 [[ -n "${WANDB_API_KEY:-}" ]] && ARGS+=(--env "WANDB_API_KEY=${WANDB_API_KEY}")
 ARGS+=("${SIF}")
 

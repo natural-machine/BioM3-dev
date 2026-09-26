@@ -108,6 +108,16 @@ ENVS+=(--env "BIOM3_LAUNCHER=${BIOM3_LAUNCHER:-container}")
 
 [[ -n "${WANDB_API_KEY:-}" ]] && ENVS+=(--env "WANDB_API_KEY=${WANDB_API_KEY}")
 
+# The lightning fork imports pkg_resources, whose deprecation notice every rank
+# would print. Only when the caller has no PYTHONWARNINGS of their own: apptainer
+# splits --env values on commas, so the two cannot be combined.
+[[ -z "${PYTHONWARNINGS:-}" ]] && \
+    ENVS+=(--env "PYTHONWARNINGS=ignore:pkg_resources is deprecated as an API")
+
+# Apptainer warns about every host variable that an --env above replaces. The
+# host values are wrong inside the container, so drop them from this process.
+for e in "${ENVS[@]}"; do [[ "${e}" == --env ]] || unset "${e%%=*}"; done
+
 # `exec` (not `run`) so we bypass the image entrypoint and instead source
 # environment.sh ourselves — that is what applies the Aurora oneCCL/xccl vars.
 # The passed command runs from /app with "$@" preserved.
@@ -115,5 +125,7 @@ set -- bash -lc 'cd /app && source environment.sh >&2 && exec "$@"' _ "$@"
 
 # `--writable-tmpfs`: ephemeral RAM-backed overlay so incidental writes to the
 # read-only image (caches, tests/_tmp) succeed; real outputs go to /app/outputs.
+# `--quiet` drops apptainer's INFO lines (e.g. "gocryptfs not found"); its
+# warnings and errors still print.
 echo "+ apptainer exec --writable-tmpfs --bind ${BIND_ARG} ${SIF} <cmd>" >&2
-exec apptainer exec --writable-tmpfs --bind "${BIND_ARG}" "${ENVS[@]}" "${SIF}" "$@"
+exec apptainer --quiet exec --writable-tmpfs --bind "${BIND_ARG}" "${ENVS[@]}" "${SIF}" "$@"

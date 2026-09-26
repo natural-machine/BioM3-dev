@@ -173,6 +173,12 @@ ENVS=(--env "ZE_FLAT_DEVICE_HIERARCHY=FLAT"
 
 [[ -n "${WANDB_API_KEY:-}" ]] && ENVS+=(--env "WANDB_API_KEY=${WANDB_API_KEY}")
 
+# The lightning fork imports pkg_resources, whose deprecation notice every rank
+# would print. Only when the caller has no PYTHONWARNINGS of their own: apptainer
+# splits --env values on commas, so the two cannot be combined.
+[[ -z "${PYTHONWARNINGS:-}" ]] && \
+    ENVS+=(--env "PYTHONWARNINGS=ignore:pkg_resources is deprecated as an API")
+
 # --- Rank layout ----------------------------------------------------------
 # Which of the two shapes on Aurora this run uses. The container equivalent of
 # the aurora_multinode.sh / aurora_multinode_rl.sh split.
@@ -333,6 +339,13 @@ ${LAYOUT_POST}"'exec "$@"'
 # settings apply; the --env values above win over anything it sets.
 set -- bash -lc "${PRELUDE}" _ "$@"
 
+# Apptainer warns, once per rank, about every host variable that an --env above
+# replaces. The host values are wrong inside the container, so drop them before
+# mpiexec forwards this environment (--envall) to the ranks.
+for e in "${ENVS[@]}"; do [[ "${e}" == --env ]] || unset "${e%%=*}"; done
+
+# `--quiet` drops apptainer's INFO lines (e.g. "gocryptfs not found"); its
+# warnings and errors still print.
 echo "+ mpiexec ${MPI_ARGS[*]} apptainer exec --writable-tmpfs --bind ${BIND_ARG} ${SIF} <cmd>" >&2
 exec mpiexec "${MPI_ARGS[@]}" \
-    apptainer exec --writable-tmpfs --bind "${BIND_ARG}" "${ENVS[@]}" "${SIF}" "$@"
+    apptainer --quiet exec --writable-tmpfs --bind "${BIND_ARG}" "${ENVS[@]}" "${SIF}" "$@"

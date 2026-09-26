@@ -27,7 +27,6 @@ _GLOBAL_RANK_ENV_VARS = (
 )
 _WORLD_SIZE_ENV_VARS = (
     "WORLD_SIZE",
-    "BIOM3_WORLD_SIZE",
     "PMI_SIZE",
     "OMPI_COMM_WORLD_SIZE",
 )
@@ -62,16 +61,9 @@ def get_world_size() -> int:
     return 1
 
 
-_LAUNCHER_EVIDENCE_ENV_VARS = tuple(
-    var
-    for var in _GLOBAL_RANK_ENV_VARS + _LOCAL_RANK_ENV_VARS + _WORLD_SIZE_ENV_VARS
-    if var != "BIOM3_WORLD_SIZE"
-)
-
-
 def is_launched() -> bool:
     """True iff at least one launcher env var is set, indicating mpiexec/torchrun."""
-    for var in _LAUNCHER_EVIDENCE_ENV_VARS:
+    for var in _GLOBAL_RANK_ENV_VARS + _LOCAL_RANK_ENV_VARS + _WORLD_SIZE_ENV_VARS:
         if os.environ.get(var) not in (None, ""):
             return True
     return False

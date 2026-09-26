@@ -263,10 +263,11 @@ ENVS+=(--env "BIOM3_WORLD_SIZE=${NGPU_TOTAL}")
 # these and reports creates_processes_externally=True, which is accurate here:
 # mpiexec already created the processes.
 #
-# BIOM3_RANK_SOURCE=mpi skips the translation entirely and lets MPIEnvironment
+# BIOM3_RANK_SOURCE=mpi skips the per-rank translation and lets MPIEnvironment
 # detect via mpi4py, which is the native path and only works in an image whose
-# MPI matches the launcher's (Dockerfile.xpu-oneapi). Note TorchElasticEnvironment
-# is checked BEFORE MPIEnvironment, so the variables below suppress it.
+# MPI matches the launcher's (Dockerfile.xpu-oneapi). WORLD_SIZE is exported
+# either way: biom3.core.distributed reads it, while Lightning picks its
+# environment from TORCHELASTIC_RUN_ID and mpi4py, neither of which it affects.
 # BIOM3_SETVARS=1 puts the base oneAPI's MPI libraries ahead of pip's. The
 # xpu-oneapi image has two Intel MPIs: the base's (what mpi4py was compiled
 # against) and pip's impi-rt, pulled in by torch. If their versions differ the
@@ -314,13 +315,12 @@ export LD_LIBRARY_PATH="/hostfabric:${LD_LIBRARY_PATH}"
 '
 fi
 
-if [[ "${BIOM3_RANK_SOURCE:-pals}" == "mpi" ]]; then
-    RANK_XLATE=""
-else
-    RANK_XLATE='export RANK="${PALS_RANKID:?PALS_RANKID not set; was this launched by mpiexec?}"
+RANK_XLATE='export WORLD_SIZE="${BIOM3_WORLD_SIZE:?BIOM3_WORLD_SIZE not set}"
+'
+if [[ "${BIOM3_RANK_SOURCE:-pals}" != "mpi" ]]; then
+    RANK_XLATE+='export RANK="${PALS_RANKID:?PALS_RANKID not set; was this launched by mpiexec?}"
 export LOCAL_RANK="${PALS_LOCAL_RANKID:?PALS_LOCAL_RANKID not set}"
 export LOCAL_WORLD_SIZE="${PALS_LOCAL_SIZE:?PALS_LOCAL_SIZE not set}"
-export WORLD_SIZE="${BIOM3_WORLD_SIZE:?BIOM3_WORLD_SIZE not set}"
 export GROUP_RANK=$(( RANK / LOCAL_WORLD_SIZE ))
 export NODE_RANK="${GROUP_RANK}"
 export TORCHELASTIC_RUN_ID="${TORCHELASTIC_RUN_ID:-biom3-mpi}"

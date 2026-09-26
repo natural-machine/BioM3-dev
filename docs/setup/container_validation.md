@@ -466,38 +466,29 @@ Per column:
    minutes) instead of the 20 steps requested. Worth deciding whether `max_steps` should
    warn or apply in epoch mode. Not fixed here — reported only.
 
-11. Stage 1 `s1` fails on XPU with more than one rank, for `dataset_type` `default` and
-   `masked`. `PL_PEN_CL` and `mask_PL_PEN_CL` build their metric dict from
-   `performance_metrics(logits.detach().cpu())` and hand those CPU tensors straight to
-   `self.log(..., sync_dist=True)`
-   ([`src/biom3/Stage1/PL_wrapper.py:857`](../../src/biom3/Stage1/PL_wrapper.py#L857),
-   [`:408`](../../src/biom3/Stage1/PL_wrapper.py#L408)); `PL_PEN_CL` additionally logs the
-   CPU-derived `valid_erank_*`
-   ([`:447`](../../src/biom3/Stage1/PL_wrapper.py#L447)). Lightning's epoch-end sync then
-   all-reduces a CPU tensor, and the XPU process group is `xccl` only, so it raises
-   `RuntimeError: No backend type associated with device type cpu`. CUDA is unaffected
-   because PyTorch registers gloo for CPU alongside NCCL, and a single rank is unaffected
-   because Lightning skips the reduction at `world_size == 1` — which is why `sp1-s1`
-   passed on both counts.
+11. ~~Stage 1 `s1` fails on XPU with more than one rank.~~ **Fixed in `0d4a374`; pending
+   an image rebuild.** `PL_PEN_CL` computes the RankME effective ranks from singular
+   values taken on CPU, then logged them with `sync_dist=True`
+   ([`src/biom3/Stage1/PL_wrapper.py:447`](../../src/biom3/Stage1/PL_wrapper.py#L447)).
+   Lightning all-reduces whatever it is handed, and an XPU process group is `xccl`-only
+   with no backend for a CPU tensor, so the run died at the first validation epoch end
+   with `RuntimeError: No backend type associated with device type cpu`. CUDA is
+   unaffected (PyTorch registers gloo for CPU alongside NCCL) and one rank is unaffected
+   (Lightning skips the reduction at `world_size == 1`), which is why `sp1-s1` passed.
+   Fixed by logging `erank.to(self.device)`.
 
-   **`dataset_type: pfam` / `pfam_ablated` are NOT affected**, and that is the production
-   path. `pfam_PL_PEN_CL` logs through `_log_reduced`
-   ([`:91`](../../src/biom3/Stage1/PL_wrapper.py#L91)), which casts every scalar with
-   `device=module.device` before one fused `all_reduce` and then logs with
-   `sync_dist=False`, so no CPU tensor ever reaches a collective.
+   **Scope correction:** an earlier version of this item claimed `mask_PL_PEN_CL` had the
+   same defect via `performance_metrics(logits.detach().cpu())`. That was wrong.
+   `compute_class_metrics` returns sklearn floats, not tensors, and Lightning creates
+   those on the module device. Only the erank lines were ever CPU tensors, and they are
+   active solely in `PL_PEN_CL` — `mask_PL_PEN_CL` has them commented out. So only
+   `dataset_type: default` was affected, not two wrappers.
 
-   Fix shape: route the two broken wrappers through `_log_reduced` as well, which also
-   gets them its 18-collectives-to-1 win. Needs an image rebuild. Found by `au1-s1` on
-   2026-09-26. Not fixed — reported only.
-
-12. `scripts/aurora/apptainer_mpi_run.sh`'s `USAGE` header omits `BIOM3_RANK_SOURCE=mpi`
-   from all three of its examples, including the 2-node one, even though the body
-   documents the flag at [`:258`](../../scripts/aurora/apptainer_mpi_run.sh#L258) and
-   `setup_aurora_container.md` uses it in its multi-node example. Anyone following
-   `--help` gets the `pals` default, which is the fallback for the `xpu` image rather
-   than the native path for `xpu-oneapi`. This misled the first `au2` attempt on
-   2026-09-26. Fix: add it to the header's `xpu-oneapi` examples. Not fixed — reported
-   only.
+12. ~~`apptainer_mpi_run.sh`'s `USAGE` header omits `BIOM3_RANK_SOURCE=mpi`.~~
+   **Fixed in `0d4a374`.** The body documented the flag but no example used it, so
+   following `--help` gave the `pals` default — the fallback for the `xpu` image rather
+   than the native path for `xpu-oneapi`. All three examples now set it, and `ENV` lists
+   it. No image rebuild needed: the wrappers run on the host.
 
 13. ~~`emb` crashes on every rank that receives no rows.~~ **Root cause found and fixed
    in `4f5e05c`; pending an image rebuild.** The crash (23 ranks raising

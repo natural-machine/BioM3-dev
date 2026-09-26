@@ -33,6 +33,10 @@
 #                      scripts/_container_mounts.sh
 #   BIOM3_FI_PROVIDER  libfabric provider (default tcp; cxi needs host binds)
 #   BIOM3_CCL_LAUNCHER CCL_PROCESS_LAUNCHER (default torchrun; hydra|pmix|none)
+#   BIOM3_CCL_ATL_TRANSPORT  CCL_ATL_TRANSPORT (default ofi)
+#   BIOM3_CCL_TOPO_FABRIC_VERTEX_CONNECTION_CHECK
+#                      CCL_TOPO_FABRIC_VERTEX_CONNECTION_CHECK (default 0; 1
+#                      restores oneCCL's own topology detection)
 #   WANDB_API_KEY      forwarded into the container if set
 #
 #=============================================================================
@@ -99,6 +103,17 @@ ENVS=(--env "ZE_FLAT_DEVICE_HIERARCHY=FLAT")
 ENVS+=(--env "FI_PROVIDER=${BIOM3_FI_PROVIDER:-tcp}")
 ENVS+=(--env "CCL_PROCESS_LAUNCHER=${BIOM3_CCL_LAUNCHER:-torchrun}")
 ENVS+=(--env "CCL_ROOT=/opt/venv")
+
+#   CCL_ATL_TRANSPORT=ofi — under torchrun oneCCL finds no MPI launcher and
+#     falls back to ofi anyway, printing a warning per rank; start there.
+#
+#   CCL_TOPO_FABRIC_VERTEX_CONNECTION_CHECK=0 — inside the container the Level
+#     Zero fabric query reports no Xe Link between some tiles, so oneCCL warns
+#     "topology recognition shows PCIe connection" and disables its topo
+#     (device-to-device) algorithm for intra-node collectives. Aurora's stacks
+#     are Xe Link connected, so skip the check and let oneCCL assume the links.
+ENVS+=(--env "CCL_ATL_TRANSPORT=${BIOM3_CCL_ATL_TRANSPORT:-ofi}")
+ENVS+=(--env "CCL_TOPO_FABRIC_VERTEX_CONNECTION_CHECK=${BIOM3_CCL_TOPO_FABRIC_VERTEX_CONNECTION_CHECK:-0}")
 
 # Spawn ranks with torchrun (launchers/container_singlenode.sh), not the host's
 # mpiexec: the container has no access to PBS's hostfile, so Hydra fails with

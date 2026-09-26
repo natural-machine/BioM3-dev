@@ -55,6 +55,9 @@
 #   BIOM3_FI_PROVIDER  libfabric provider (default tcp; see the CXI note below)
 #   BIOM3_FABRIC_DIR   host libfabric to bind over the container's (CXI; below)
 #   BIOM3_PMIX         host PMIx library (default /usr/lib64/libpmix.so.2)
+#   BIOM3_CCL_TOPO_FABRIC_VERTEX_CONNECTION_CHECK
+#                      CCL_TOPO_FABRIC_VERTEX_CONNECTION_CHECK (default 0; see
+#                      apptainer_run.sh)
 #   WANDB_API_KEY      forwarded into the container if set
 #
 # CXI: the default provider is tcp, which works across nodes but does not use
@@ -138,7 +141,8 @@ ENVS=(--env "ZE_FLAT_DEVICE_HIERARCHY=FLAT"
       --env "FI_PROVIDER=${BIOM3_FI_PROVIDER:-tcp}"
       --env "I_MPI_PMI_LIBRARY=/hostlib/libpmix.so.2"
       --env "CCL_ZE_IPC_EXCHANGE=${BIOM3_CCL_ZE_IPC_EXCHANGE:-sockets}"
-      --env "CCL_ATL_TRANSPORT=${BIOM3_CCL_ATL_TRANSPORT:-mpi}")
+      --env "CCL_ATL_TRANSPORT=${BIOM3_CCL_ATL_TRANSPORT:-mpi}"
+      --env "CCL_TOPO_FABRIC_VERTEX_CONNECTION_CHECK=${BIOM3_CCL_TOPO_FABRIC_VERTEX_CONNECTION_CHECK:-0}")
 
 # CCL_ATL_TRANSPORT=mpi (oneCCL's own default) rather than the ofi that ALCF's
 # recipe sets. Their recipe has no usable MPI inside the container, so oneCCL

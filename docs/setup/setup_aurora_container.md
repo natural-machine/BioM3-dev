@@ -149,8 +149,8 @@ and data are read-only. See the script header for all `BIOM3_*` knobs.
 
 ## Collectives: what works and what doesn't
 
-oneCCL inside the container needs three things that bare metal gets for free.
-All three are handled by [apptainer_run.sh](../../scripts/aurora/apptainer_run.sh);
+oneCCL inside the container needs several settings that bare metal gets for free.
+All of them are handled by [apptainer_run.sh](../../scripts/aurora/apptainer_run.sh);
 they are recorded here because the failure modes are opaque.
 
 | Need | Why | Failure if missing |
@@ -158,6 +158,8 @@ they are recorded here because the failure modes are opaque.
 | `libze_loader.so` symlink | oneCCL `dlopen`s the unversioned name, which only the `-dev` package ships. torch is unaffected — it links `.so.1` directly. | `could not open the library: libze_loader.so`, then `ze_data was not initialized` on every collective |
 | `FI_PROVIDER=tcp` | A shell with `module load frameworks` exports `cxi,tcp;ofi_rxm`; apptainer forwards it, and the container's libfabric has no cxi provider. | `fi_getinfo error: ret -61, providers 0` → `failed to initialize ATL` |
 | `CCL_PROCESS_LAUNCHER=torchrun` | The host sets `pmix`, but no PMIx server is reachable in the container. `torchrun` reads `LOCAL_RANK`/`LOCAL_WORLD_SIZE`. | `PMIx_Init failed: PMIX_ERR_UNREACH` → `local_idx >= 0 && local_idx < local_count failed` |
+| `CCL_TOPO_FABRIC_VERTEX_CONNECTION_CHECK=0` | In the container the Level Zero fabric query reports no Xe Link between some tiles, so oneCCL treats the node as PCIe-connected and disables its device-to-device `topo` algorithm. Aurora's stacks are Xe Link connected, so the wrapper skips the check. | `topology recognition shows PCIe connection between devices`, repeated per rank, and slower collectives: 12-tile Stage 3 training ran at 0.38 it/s with the check versus 0.48 it/s without |
+| `CCL_ATL_TRANSPORT=ofi` | Under torchrun oneCCL finds no MPI launcher and falls back to `ofi` anyway. | `did not find MPI-launcher specific variables, switch to ATL/OFI`, once per rank (harmless) |
 
 **Single node** works with the above. GPU-to-GPU transfers use Level-Zero IPC
 rather than the fabric, so the tcp provider carries only out-of-band traffic.

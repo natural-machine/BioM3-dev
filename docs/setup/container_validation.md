@@ -15,8 +15,8 @@ output directory name, so every result is traceable.
 | `sp1` | DGX Spark | 1 × GB10 | cuda (arm64) | pass | pass | pass | pass | pass | pass |
 | `sp2` | DGX Spark | 2 × GB10 | cuda (arm64) | blocked | blocked | blocked | blocked | blocked | blocked |
 | `mac` | Local Mac | 1 × CPU | cpu (arm64) | todo | n/a | n/a | n/a | n/a | todo |
-| `au1` | Aurora | 1 × 12 tiles | xpu | todo | todo | todo | todo | todo | todo |
-| `au2` | Aurora | 2 × 12 tiles | xpu-oneapi | todo | todo | todo | todo | todo | todo |
+| `au1` | Aurora | 1 × 12 tiles | xpu | todo | fail | pass | pass | todo | pass |
+| `au2` | Aurora | 2 × 12 tiles | xpu-oneapi | todo | todo | pass | pass | todo | pass |
 | `po1` | Polaris | 1 × 4 A100 | cuda (amd64) | todo | todo | todo | todo | todo | todo |
 | `po2` | Polaris | 2 × 4 A100 | cuda (amd64) | blocked | blocked | blocked | blocked | blocked | blocked |
 | `mi1` | Mithril | 1 × N GPU | cuda (amd64) | todo | todo | todo | todo | todo | todo |
@@ -130,7 +130,7 @@ and `gen` apply here, both with `--device cpu` (see [row notes](#row-notes)).
 # --- au1: Aurora, 1 node, 12 tiles --------------------------------------
 # from a `qsub -I` shell on a compute node
 export ROW=au1 NGPU=12
-export BIOM3_IMAGE=/flare/NLDesignProtein/$USER/biom3_xpu.sif
+export BIOM3_IMAGE=/flare/NLDesignProtein/$USER/biom3_xpu_25e440d.sif
 export BIOM3_BIND_EXTRA=/lus
 R="scripts/aurora/apptainer_run.sh"
 LAUNCH="scripts/launchers/container_singlenode.sh"
@@ -220,10 +220,17 @@ On the `mac` row, add `--device cpu` to the `emb` and `gen` commands and skip th
 directly, never through the `scripts/stage*_{single,multi}node.sh` wrappers, which would
 spawn ranks a second time.
 
+`BIOM3_RANK_SOURCE=mpi` is **required** on this row. The default is `pals`, which
+translates the PALS rank variables into torch's and lands on `TorchElasticEnvironment`;
+`mpi` uses `MPIEnvironment` via mpi4py, the native path for `xpu-oneapi`, whose Intel MPI
+matches the host launcher's. The script's own `USAGE` header omits it from every example,
+including the 2-node one — see open item 12.
+
 ```bash
 # from a 2-node `qsub -I` shell
 export ROW=au2 NGPU_PER_NODE=12 NGPU_TOTAL=24
-export BIOM3_IMAGE=/flare/NLDesignProtein/$USER/biom3_xpu-oneapi.sif
+export BIOM3_RANK_SOURCE=mpi
+export BIOM3_IMAGE=/flare/NLDesignProtein/$USER/biom3_xpu-oneapi_25e440d.sif
 export BIOM3_FABRIC_DIR=/opt/cray/libfabric/1.22.0/lib64 BIOM3_FI_PROVIDER=cxi
 export BIOM3_BIND_EXTRA=/lus
 R="scripts/aurora/apptainer_mpi_run.sh"
@@ -459,6 +466,39 @@ Per column:
    minutes) instead of the 20 steps requested. Worth deciding whether `max_steps` should
    warn or apply in epoch mode. Not fixed here — reported only.
 
+11. Stage 1 `s1` fails on XPU with more than one rank, for `dataset_type` `default` and
+   `masked`. `PL_PEN_CL` and `mask_PL_PEN_CL` build their metric dict from
+   `performance_metrics(logits.detach().cpu())` and hand those CPU tensors straight to
+   `self.log(..., sync_dist=True)`
+   ([`src/biom3/Stage1/PL_wrapper.py:857`](../../src/biom3/Stage1/PL_wrapper.py#L857),
+   [`:408`](../../src/biom3/Stage1/PL_wrapper.py#L408)); `PL_PEN_CL` additionally logs the
+   CPU-derived `valid_erank_*`
+   ([`:447`](../../src/biom3/Stage1/PL_wrapper.py#L447)). Lightning's epoch-end sync then
+   all-reduces a CPU tensor, and the XPU process group is `xccl` only, so it raises
+   `RuntimeError: No backend type associated with device type cpu`. CUDA is unaffected
+   because PyTorch registers gloo for CPU alongside NCCL, and a single rank is unaffected
+   because Lightning skips the reduction at `world_size == 1` — which is why `sp1-s1`
+   passed on both counts.
+
+   **`dataset_type: pfam` / `pfam_ablated` are NOT affected**, and that is the production
+   path. `pfam_PL_PEN_CL` logs through `_log_reduced`
+   ([`:91`](../../src/biom3/Stage1/PL_wrapper.py#L91)), which casts every scalar with
+   `device=module.device` before one fused `all_reduce` and then logs with
+   `sync_dist=False`, so no CPU tensor ever reaches a collective.
+
+   Fix shape: route the two broken wrappers through `_log_reduced` as well, which also
+   gets them its 18-collectives-to-1 win. Needs an image rebuild. Found by `au1-s1` on
+   2026-09-26. Not fixed — reported only.
+
+12. `scripts/aurora/apptainer_mpi_run.sh`'s `USAGE` header omits `BIOM3_RANK_SOURCE=mpi`
+   from all three of its examples, including the 2-node one, even though the body
+   documents the flag at [`:258`](../../scripts/aurora/apptainer_mpi_run.sh#L258) and
+   `setup_aurora_container.md` uses it in its multi-node example. Anyone following
+   `--help` gets the `pals` default, which is the fallback for the `xpu` image rather
+   than the native path for `xpu-oneapi`. This misled the first `au2` attempt on
+   2026-09-26. Fix: add it to the header's `xpu-oneapi` examples. Not fixed — reported
+   only.
+
 ## Prior evidence
 
 These runs happened before this matrix existed. They are context only: re-run each one
@@ -485,6 +525,14 @@ Add one line per run, newest last. List any deviation from the standard command.
 | `sp1-pt` | 2026-09-26 | cuda-25e440d | pass | 93 s | val_loss 3.62 → 2.01 over 25 steps. |
 | `sp1-ft` | 2026-09-26 | cuda-25e440d | pass | 89 s | Strict load of `run1_base`; 50.4M trainable / 35.8M frozen. val_loss 5.49 → 2.66 (open item 9). |
 | `sp1-gen` | 2026-09-26 | cuda-25e440d | pass | 7 min | 25 sequences, amino-acid letters only. Still ~1,000-residue low-complexity (open item 9). |
+| `au1-s1` | 2026-09-26 | xpu-25e440d | fail | — | 12 ranks. `RuntimeError: No backend type associated with device type cpu` from Lightning's epoch-end metric sync (open item 11). Run by the user. |
+| `au1-pt` | 2026-09-26 | xpu-25e440d | pass | — | 12 ranks, as written. Run by the user. |
+| `au1-ft` | 2026-09-26 | xpu-25e440d | pass | — | 12 ranks, as written. Run by the user. |
+| `au1-gen` | 2026-09-26 | xpu-25e440d | pass | — | 12 ranks, as written. Run by the user. |
+| `au2-pt` (first try) | 2026-09-26 | xpu-oneapi-25e440d | fail | — | 24 ranks. `rank 11 died from signal 11` during oneCCL setup. **Cause: `BIOM3_RANK_SOURCE=mpi` was missing** (open item 12), so Lightning used `TorchElasticEnvironment` instead of `MPIEnvironment`. Not a dependency-drift or fabric problem — the initial diagnosis here was wrong. DeepSpeed reported `GLOBAL_RANK: 0..23` correctly right up to the crash, so rank identity looked healthy while the environment plugin was wrong. |
+| `au2-pt` | 2026-09-26 | xpu-oneapi-25e440d | pass | — | 24 ranks with `BIOM3_RANK_SOURCE=mpi`, CXI fabric, DeepSpeed ZeRO-2. Run by the user. |
+| `au2-ft` | 2026-09-26 | xpu-oneapi-25e440d | pass | — | 24 ranks, as above. Run by the user. |
+| `au2-gen` | 2026-09-26 | xpu-oneapi-25e440d | pass | — | 24 ranks, as above. Run by the user. |
 
 The whole `sp1` row was re-run against `cuda-25e440d` after the rebuild, rather than
 carrying over the `cuda-2066a75` results, because the image had moved five commits.

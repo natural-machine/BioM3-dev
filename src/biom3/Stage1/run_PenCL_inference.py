@@ -501,8 +501,10 @@ def main(args, _setup_logging=True):
 
     # Stack this rank's latent vectors. A rank gets no batches at all when
     # len(all_batches) < world_size, so guard the empty case.
-    z_t_tensor = torch.vstack(z_t_list) if z_t_list else torch.empty(0)
-    z_p_tensor = torch.vstack(z_p_list) if z_p_list else torch.empty(0)
+    # 2-D even when empty: the reporting below norms over dim=1, and a bare
+    # torch.empty(0) is 1-D.
+    z_t_tensor = torch.vstack(z_t_list) if z_t_list else torch.empty(0, 0)
+    z_p_tensor = torch.vstack(z_p_list) if z_p_list else torch.empty(0, 0)
 
     # Distributed: every rank writes its shard, then rank 0 merges in global row
     # order and the others are done. Shards go via disk rather than

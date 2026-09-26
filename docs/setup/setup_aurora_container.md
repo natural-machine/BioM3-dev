@@ -18,21 +18,26 @@ There are **two** Aurora images, and which one you want depends on node count:
 ## Why a separate image from the CUDA one
 
 Aurora's GPUs are Intel Data Center GPU Max (Ponte Vecchio), driven by oneAPI /
-Level-Zero — there is no CUDA. The `biom3:cuda` image would run on Aurora only on
-CPU. The XPU image instead installs `torch==2.8.0+xpu` with the matching
-`intel-extension-for-pytorch==2.8.10+xpu` — the newest public XPU pair, and one
-the `addison-nm/lightning` fork requires, since its `XPUAccelerator` raises
-without IPEX. Aurora's `module load frameworks` runs torch `2.10.0a0` with a
-non-public IPEX `2.10.10`, which the container cannot reproduce (native
-`torch.xpu`;
-Intel's IPEX is upstreamed into mainline torch, and `torch.distributed` uses the
-`xccl` backend). This mirrors how the CUDA image swaps in the cu129 wheel — see
-[PyTorch on Aurora](https://docs.alcf.anl.gov/aurora/data-science/frameworks/pytorch/).
+Level-Zero — there is no CUDA, so the `biom3:cuda` image would run there only on
+CPU. The Aurora images install Intel's `+xpu` torch wheels instead, with native
+`torch.xpu` and the `xccl` distributed backend:
+
+- `Dockerfile.xpu`: `torch==2.8.0+xpu`, plus `intel-extension-for-pytorch==2.8.10+xpu`,
+  kept because it is part of the stack this image was validated with. The
+  `addison-nm/lightning` fork no longer requires it.
+- `Dockerfile.xpu-oneapi`: `torch==2.10.0+xpu` on oneAPI 2025.3, the version under
+  Aurora's `frameworks/2025.3.1`, and no IPEX.
+
+Aurora's `module load frameworks` runs a source-built torch `2.10.0a0` that a
+container cannot reproduce; the oneapi image matches the oneAPI version beneath it.
+See [PyTorch on Aurora](https://docs.alcf.anl.gov/aurora/data-science/frameworks/pytorch/).
 
 ## Prerequisites
 
-- An x86_64 host with Docker to build + push the image (any dev box; Aurora nodes
-  have no Docker). Intel GPU torch wheels are x86_64-only.
+- A Docker host with buildx to build + push the images (Aurora nodes have no
+  Docker). The images are amd64-only, since Intel GPU torch wheels are x86_64-only:
+  an x86_64 host builds them natively, and an arm64 host builds them under QEMU
+  emulation (setup in [docker/README.md](../../docker/README.md#publishing-to-ghcr)).
 - GHCR push access for the one-time publish (see [cloud/README.md](../../cloud/README.md)
   and [docker/push.sh](../../docker/push.sh)). The published image is public, so
   the Aurora-side pull needs no login.
@@ -172,18 +177,27 @@ Lightning falls back to a local environment, and every rank reports global rank
 0. `intel/oneapi-hpckit` supplies an Intel MPI that matches the host launcher.
 
 ```bash
-# 2 nodes, 24 tiles. Do not `module load frameworks` — the container carries its
-# own stack, and the module only exports host values the wrapper must override.
+# 2 nodes, 24 tiles. Run this from the shell `qsub -I` gives you: the wrapper
+# reads $PBS_NODEFILE, which PBS sets only there. Do not `module load frameworks`
+# — the container carries its own stack, and the module only exports host values
+# the wrapper must override.
 module load apptainer
+SIF=/flare/NLDesignProtein/$USER/biom3_xpu-oneapi.sif    # the oneapi .sif you built
+ls -d /opt/cray/libfabric/*/lib64                         # confirm BIOM3_FABRIC_DIR below
 
 NGPU_PER_NODE=12 NGPU_TOTAL=24 BIOM3_RANK_SOURCE=mpi \
 BIOM3_FABRIC_DIR=/opt/cray/libfabric/1.22.0/lib64 BIOM3_FI_PROVIDER=cxi \
-BIOM3_SIF=/flare/.../biom3_xpu-oneapi-<sha>.sif \
+BIOM3_SIF="$SIF" \
 BIOM3_WEIGHTS_DIR=./weights BIOM3_DATA_DIR=./data \
 scripts/aurora/apptainer_mpi_run.sh \
     biom3_train_stage3 --config_path configs/stage3_training/pretrain_scratch_v1.json \
-    --device xpu --devices_per_node 12 --num_nodes 2 --run_id run001 --epochs 2
+    --device xpu --devices_per_node 12 --num_nodes 2 --run_id mn001 --epochs 2
 ```
+
+There is no progress bar on this path: under `mpiexec` each rank's stdout is a pipe,
+and `--progress_bar auto` shows the bar only on a terminal. Follow the run in
+TensorBoard or W&B, or from the per-epoch validation lines; `--progress_bar True`
+forces the bar, though the launcher may forward it in bursts.
 
 One additional setting this path needs, handled by the wrapper:
 `CCL_ZE_IPC_EXCHANGE=sockets`. Each rank is its own container with its own PID

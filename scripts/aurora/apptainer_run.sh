@@ -10,8 +10,8 @@
 #
 # This is the container replacement for the bare-metal `module load frameworks +
 # source venv + source environment.sh` prelude. SINGLE NODE only — multi-node
-# oneCCL over Aurora's CXI fabric needs the host libfabric/MPICH bound in and is
-# not handled here (see docs/setup/setup_aurora_container.md).
+# runs use apptainer_mpi_run.sh (host mpiexec, one container per rank; see
+# docs/setup/setup_aurora_container.md).
 #
 # USAGE:
 #   scripts/aurora/apptainer_run.sh <command...>

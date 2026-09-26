@@ -1,14 +1,15 @@
-# Setup: Docker (AWS / Mithril GPU cloud)
+# Setup: Docker
 
-For running BioM3 in a container on commercial GPU cloud (AWS GPU instances, Mithril) —
-training (all stages), finetuning, and generation. Unlike the other targets there is no
-conda/venv to create: you build one CUDA image and run it.
+For running BioM3 in a container on any Docker host with an NVIDIA GPU — a
+workstation or a cloud GPU instance (AWS, Mithril) — for training (all stages),
+finetuning, and generation. Unlike the other targets there is no conda/venv to create:
+you build (or pull `ghcr.io/natural-machine/biom3:cuda-dev`) one CUDA image and run it.
 
-> ALCF HPC (Polaris/Aurora) is a separate case — those use apptainer; see their setup
-> docs. This guide is for Docker on commercial cloud only.
+> ALCF HPC uses Apptainer instead: see [`setup_polaris_container.md`](./setup_polaris_container.md)
+> and [`setup_aurora_container.md`](./setup_aurora_container.md).
 
-The full reference (build options, all run recipes, the object-store sync, the streamlit
-app, multi-arch) lives in [`docker/README.md`](../../docker/README.md). Quick start:
+The full reference (build options, all run recipes, the GHCR weights bundle, the
+streamlit app, multi-arch) lives in [`docker/README.md`](../../docker/README.md). Quick start:
 
 ## Prerequisites
 
@@ -62,5 +63,5 @@ NGPU=4 docker/run.sh scripts/stage3_train_singlenode.sh \
 docker/run.sh biom3_PenCL_inference --help
 ```
 
-Single-node multi-GPU is supported via `torchrun`; multi-node (across instances) is a
-documented follow-up — see [`docker/README.md`](../../docker/README.md).
+Single-node multi-GPU runs through `torchrun`; multi-node across instances uses
+`scripts/launchers/container_multinode.sh` — see [`docker/README.md`](../../docker/README.md).

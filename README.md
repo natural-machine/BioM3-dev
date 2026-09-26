@@ -46,7 +46,9 @@ For installation and setup instructions on the following machines, refer to the 
 | Machine | Instructions |
 | ------- | ------------ |
 | Polaris (ALCF) | [setup_polaris.md](./docs/setup/setup_polaris.md) |
+| Polaris (ALCF), container | [setup_polaris_container.md](./docs/setup/setup_polaris_container.md) |
 | Aurora (ALCF) | [setup_aurora.md](./docs/setup/setup_aurora.md) |
+| Aurora (ALCF), container | [setup_aurora_container.md](./docs/setup/setup_aurora_container.md) |
 | DGX Spark | [setup_spark.md](./docs/setup/setup_spark.md) |
 | Docker | [setup_docker.md](./docs/setup/setup_docker.md) |
 

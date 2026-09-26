@@ -54,6 +54,9 @@ configs/            # JSON configs for inference, per-stage training, RL, splits
   split/ weights/   #   Split specs and named weight sets
   benchmark/ jobs/  #   Benchmark and job-template configs
 scripts/            # Bash wrappers (embedding, training, generation, RL, cloud, sync)
+docker/             # Dockerfiles (cuda, cpu, xpu, xpu-oneapi), build/push/run wrappers, entrypoint
+cloud/              # Mithril job runner (run.mithril.yaml) and its README
+requirements/       # pip requirement sets per machine and per image
 demos/              # End-to-end demos (dbio dataset building, SH3 embedding pipeline)
 data/databases/     # Symlinked reference databases (gitignored, see docs/setup/setup_databases.md)
 tests/              # pytest suite (conftest.py, per-stage tests, test data in tests/_data/)

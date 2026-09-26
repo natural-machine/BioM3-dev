@@ -252,15 +252,17 @@ ENVS+=(--env "BIOM3_WORLD_SIZE=${NGPU_TOTAL}")
 # detect via mpi4py, which is the native path and only works in an image whose
 # MPI matches the launcher's (Dockerfile.xpu-oneapi). Note TorchElasticEnvironment
 # is checked BEFORE MPIEnvironment, so the variables below suppress it.
-# BIOM3_SETVARS=1 puts the base oneAPI's MPI libraries ahead of pip's. Required
-# for Dockerfile.xpu-oneapi, which has two Intel MPIs: the base's (what mpi4py
-# was compiled against) and pip's impi-rt, pulled in as a dependency. Left to
-# itself the loader mixes them and mpi4py fails with
+# BIOM3_SETVARS=1 puts the base oneAPI's MPI libraries ahead of pip's. The
+# xpu-oneapi image has two Intel MPIs: the base's (what mpi4py was compiled
+# against) and pip's impi-rt, pulled in by torch. If their versions differ the
+# loader mixes them and mpi4py fails with
 #   libmpifort.so.12: undefined symbol: MPIR_F_MPI_BUFFER_AUTOMATIC
+# In the current image they match (see Dockerfile.xpu-oneapi), so multi-node
+# runs do not need this; it is for an image where they drift apart.
 #
 # Only the MPI directories, NOT setvars.sh. Sourcing setvars also puts the base's
-# oneAPI 2025.3 compiler runtime first, which is not the one the pip torch was
-# built against, and torch then fails to import with
+# oneAPI compiler runtime first, which breaks a pip torch built against a
+# different one, e.g.
 #   libur_loader.so.0: version `LIBUR_LOADER_0.11' not found (by libsycl.so.8)
 # Leave unset for Dockerfile.xpu, which has no oneAPI installation.
 SETVARS=""

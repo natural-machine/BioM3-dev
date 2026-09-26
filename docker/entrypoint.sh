@@ -28,8 +28,8 @@
 set -euo pipefail
 
 # BIOM3_MACHINE and TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD come from the image's ENV.
-# A device-specific env step (as environment.sh does for XPU) will be needed here
-# for a non-CUDA variant.
+# The xpu images leave BIOM3_MACHINE unset; their Apptainer wrappers source
+# environment.sh, which detects `aurora`.
 
 SYNC_MODE="${BIOM3_SYNC_MODE:-auto}"
 

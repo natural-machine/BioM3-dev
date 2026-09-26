@@ -12,15 +12,15 @@ output directory name, so every result is traceable.
 
 | Row | Machine | Nodes × devices | Image | emb | s1 | pt | ft | gft | gen |
 | --- | ------- | --------------- | ----- | --- | -- | -- | -- | --- | --- |
-| `sp1` | DGX Spark | 1 × GB10 | cuda (arm64) | pass | pass | pass | pass | fail | pass |
+| `sp1` | DGX Spark | 1 × GB10 | cuda (arm64) | pass | pass | pass | pass | pass | pass |
 | `sp2` | DGX Spark | 2 × GB10 | cuda (arm64) | blocked | blocked | blocked | blocked | blocked | blocked |
 | `mac` | Local Mac | 1 × CPU | cpu (arm64) | todo | n/a | n/a | n/a | n/a | todo |
-| `au1` | Aurora | 1 × 12 tiles | xpu | todo | todo | todo | todo | blocked | todo |
-| `au2` | Aurora | 2 × 12 tiles | xpu-oneapi | todo | todo | todo | todo | blocked | todo |
-| `po1` | Polaris | 1 × 4 A100 | cuda (amd64) | todo | todo | todo | todo | blocked | todo |
+| `au1` | Aurora | 1 × 12 tiles | xpu | todo | todo | todo | todo | todo | todo |
+| `au2` | Aurora | 2 × 12 tiles | xpu-oneapi | todo | todo | todo | todo | todo | todo |
+| `po1` | Polaris | 1 × 4 A100 | cuda (amd64) | todo | todo | todo | todo | todo | todo |
 | `po2` | Polaris | 2 × 4 A100 | cuda (amd64) | blocked | blocked | blocked | blocked | blocked | blocked |
-| `mi1` | Mithril | 1 × N GPU | cuda (amd64) | todo | todo | todo | todo | blocked | todo |
-| `mi2` | Mithril | 2 × N GPU | cuda (amd64) | blocked | todo | todo | todo | blocked | todo |
+| `mi1` | Mithril | 1 × N GPU | cuda (amd64) | todo | todo | todo | todo | todo | todo |
+| `mi2` | Mithril | 2 × N GPU | cuda (amd64) | blocked | todo | todo | todo | todo | todo |
 
 Status key:
 
@@ -45,15 +45,15 @@ Columns:
 
 | Variant | Tag | Rows |
 | ------- | --- | ---- |
-| cuda | `ghcr.io/natural-machine/biom3:cuda-2066a75` (amd64 + arm64; also `cuda-dev`) | `sp*`, `po*`, `mi*` |
-| cpu | `ghcr.io/natural-machine/biom3:cpu-3e6d7ab` (amd64 + arm64; also `cpu-dev`) | `mac` |
-| xpu | `ghcr.io/natural-machine/biom3:xpu-2066a75` (amd64) | `au1` |
-| xpu-oneapi | `ghcr.io/natural-machine/biom3:xpu-oneapi-2066a75` (amd64) | `au2` |
+| cuda | `ghcr.io/natural-machine/biom3:cuda-25e440d` (amd64 + arm64; also `cuda-dev`) | `sp*`, `po*`, `mi*` |
+| cpu | `ghcr.io/natural-machine/biom3:cpu-25e440d` (amd64 + arm64; also `cpu-dev`) | `mac` |
+| xpu | `ghcr.io/natural-machine/biom3:xpu-25e440d` (amd64; also `xpu-dev`) | `au1` |
+| xpu-oneapi | `ghcr.io/natural-machine/biom3:xpu-oneapi-25e440d` (amd64; also `xpu-oneapi-dev`) | `au2` |
 
-The image contents have not changed since 2066a75: later commits touch only the host-side
-Apptainer wrappers and `cloud/`. The cpu image is older (2026-09-02) and predates
-`--device auto`; see [open items](#open-items). If an image is rebuilt, update this table
-and re-run the affected cells.
+All four variants were rebuilt and published from `25e440d` on 2026-09-26, so every image
+now carries the same source, including the `--device auto` fix in open item 8. This also
+closed the cpu image's drift (it had been stuck at `2026-09-02`). If an image is rebuilt,
+update this table and re-run the affected cells.
 
 ## Standard inputs
 
@@ -397,9 +397,9 @@ Per column:
 
 ## Open items
 
-1. The cpu image is stale. `cpu-3e6d7ab` is 44 commits behind HEAD and predates the
-   `--device auto` default. Either rebuild and publish cpu from HEAD before the `mac` row,
-   or run the `mac` row with `--device cpu` and record the deviation.
+1. ~~The cpu image is stale.~~ **Closed 2026-09-26**: cpu was rebuilt and published as
+   `cpu-25e440d`, alongside the other three variants, so it is no longer 44 commits behind
+   and now has the `--device auto` default.
 2. The Polaris training wrappers are expected to fail (not yet verified). Inside the
    Polaris container, `environment.sh` sets `BIOM3_MACHINE=polaris`, so
    `stage*_train_singlenode.sh` dispatches to `scripts/launchers/polaris_singlenode.sh`.
@@ -427,18 +427,16 @@ Per column:
    share no filesystem, so rank 0 cannot see the other nodes' shards.
 7. `gft` has no single-node wrapper (only `scripts/stage3_finetune_multinode.sh`), so
    single-node cells call the entry point directly or through `container_singlenode.sh`.
-8. **Fixed in source, pending an image rebuild.** `gft` failed with `--device auto` on
-   every backend, because `src/biom3/Stage3/run_ProteoScribe_finetuning.py` never called
-   `resolve_device` (unlike its two siblings), so the raw string `auto` reached
-   `torch.load(..., map_location="auto")`. Fixed on 2026-09-26 by adding the same
-   resolve/`check_devices_per_node` block the Stage 3 trainer uses. Verified with the
-   published image plus the edited `src/` bind-mounted over `/app/src`: `--device auto`
-   resolves to cuda and the run completes in 40 s. `pytest tests/ --quick` is clean
-   (1382 passed, 162 skipped), as is `tests/stage3_tests/test_proteoscribe_finetuning.py`
-   (21 passed) and the `--dry_run` path. **The published images still carry the bug**, so
-   the `gft` column stays `blocked` until all four variants are rebuilt from a commit that
-   includes this fix. The fix also gives `gft` the `check_devices_per_node` guard it never
-   had, so an over-large `--devices_per_node` now fails early rather than late.
+8. ~~`gft` fails with `--device auto`.~~ **Closed 2026-09-26.**
+   `src/biom3/Stage3/run_ProteoScribe_finetuning.py` never called `resolve_device`
+   (unlike its two siblings), so the raw string `auto` reached
+   `torch.load(..., map_location="auto")` and every `gft` run died before the first step.
+   Fixed in `38725a5` by applying the same resolve/`check_devices_per_node` block the
+   Stage 3 trainer uses, and shipped in the `25e440d` images. Verified by `sp1-gft`
+   passing in 46 s against the published `cuda-25e440d`. The fix also gives `gft` the
+   `check_devices_per_node` guard it never had, so an over-large `--devices_per_node`
+   now fails early rather than mid-run — worth knowing on Aurora, where a tile count
+   that previously slipped through will now be rejected up front.
 9. The baked z_c inputs predate `run1_base`. `Stage2_MMD_swissprot_embedding_subset_1000.hdf5`
    dates from March 2026 and `test_Facilitator_embeddings.pt` from February 2026, so their
    z_c come from older PenCL/Facilitator weights. As a result, `ft` starts above the
@@ -480,14 +478,23 @@ Add one line per run, newest last. List any deviation from the standard command.
 
 | Cell | Date | Image tag | Result | Wall time | Deviation / notes |
 | ---- | ---- | --------- | ------ | --------- | ----------------- |
-| `sp1-gen` | 2026-09-26 | cuda-2066a75 | pass | 7 min | 25 sequences, amino-acid letters only, loaded on cuda. Sequences are ~1,000-residue low-complexity (open item 9). |
-| `sp1-emb` | 2026-09-26 | cuda-2066a75 | pass | 17 s | 3 outputs, 5 rows in the HDF5. |
-| `sp1-pt` | 2026-09-26 | cuda-2066a75 | pass | 94 s | Ran **without** `--wandb False`, so it synced W&B run `7xcr9yq4` to thenaturalmachine/BioM3-dev. val_loss 3.45 → 1.97 over 25 steps. |
-| `sp1-ft` | 2026-09-26 | cuda-2066a75 | pass | 86 s | Strict load of `run1_base`; 50.4M trainable / 35.8M frozen. val_loss 5.51 → 2.56 (open item 9). |
-| `sp1-s1` | 2026-09-26 | cuda-2066a75 | pass | 28 s | 1 step; train_loss 3.30, valid_loss 8.83. |
-| `sp1-gft` | 2026-09-26 | cuda-2066a75 | fail | 6 s | `RuntimeError: don't know how to restore data location ... (tagged with auto)` from `torch.load` (open item 8). Dataset loaded first: 27,833 train / 6,959 val. |
-| `sp1-gft` (fix verified) | 2026-09-26 | cuda-2066a75 + bind-mounted `src/` | pass | 40 s | Not a grid cell: the published image does not yet contain the fix. `--device auto` → cuda, 4/4 train batches, val_loss 0.150 → 0.147, checkpoint at step 4. Re-run as a real cell once the images are rebuilt. |
-| `sp1-gft` (`--device cuda`) | 2026-09-26 | cuda-2066a75 | — | 37 min | Diagnostic for open item 8, not a grid cell. Trains normally: 50.4M trainable, val_loss 0.159 → 0.098, checkpoint at step 870. It ran a **full 870-batch epoch, not the 20 steps asked for** — which is how open item 10 was found. |
+| `sp1-*` (first pass) | 2026-09-26 | cuda-2066a75 | 5 pass, 1 fail | — | Superseded by the re-run below. `emb`/`s1`/`pt`/`ft`/`gen` passed; `gft` failed on open item 8. `sp1-pt` ran without `--wandb False` and synced W&B run `7xcr9yq4` to thenaturalmachine/BioM3-dev. |
+| `sp1-gft` | 2026-09-26 | cuda-25e440d | pass | 46 s | First run of this cell against a published image containing the open item 8 fix. `--device auto` → cuda, 4/4 train batches, val_loss 0.187 → 0.168, checkpoint at step 4. |
+| `sp1-emb` | 2026-09-26 | cuda-25e440d | pass | 19 s | 3 outputs, 5 rows in the HDF5. |
+| `sp1-s1` | 2026-09-26 | cuda-25e440d | pass | 48 s | 1 step; train_loss 3.30. |
+| `sp1-pt` | 2026-09-26 | cuda-25e440d | pass | 93 s | val_loss 3.62 → 2.01 over 25 steps. |
+| `sp1-ft` | 2026-09-26 | cuda-25e440d | pass | 89 s | Strict load of `run1_base`; 50.4M trainable / 35.8M frozen. val_loss 5.49 → 2.66 (open item 9). |
+| `sp1-gen` | 2026-09-26 | cuda-25e440d | pass | 7 min | 25 sequences, amino-acid letters only. Still ~1,000-residue low-complexity (open item 9). |
+
+The whole `sp1` row was re-run against `cuda-25e440d` after the rebuild, rather than
+carrying over the `cuda-2066a75` results, because the image had moved five commits.
+
+One run is deliberately absent: a `sp1-gft` attempt against `cuda-25e440d` died with
+`CUDA error: out of memory` while an `xpu-oneapi` image build was running on the same
+host. The GB10 has unified memory, so the emulated build and the GPU draw on one pool.
+That was contention, not a property of the image — it is not a grid result, and the cell
+passed cleanly once the builds finished. Do not run cells while an image build is in
+flight on the same machine.
 
 Reproduction notes for the `sp1` runs above:
 

@@ -128,7 +128,9 @@ the container:
 | `./configs` | `/app/configs` | ro | *(optional)* overrides the configs baked into the image |
 
 Override the host dirs with `BIOM3_WEIGHTS_DIR`, `BIOM3_DATA_DIR`, `BIOM3_OUTPUTS_DIR`,
-`BIOM3_CONFIGS_DIR`. The weights layout mirrors
+`BIOM3_CONFIGS_DIR`. The Apptainer wrappers for Polaris and Aurora read the same
+settings with the same defaults, from one shared definition
+([`scripts/_container_mounts.sh`](../scripts/_container_mounts.sh)). The weights layout mirrors
 [`docs/setup/setup_shared_weights.md`](../docs/setup/setup_shared_weights.md).
 
 **Symlinked weights or data.** A symlink inside a mounted directory is resolved *inside*
@@ -179,19 +181,19 @@ docker/run.sh biom3_PenCL_inference \
     --input_data_path data/my_proteins.csv \
     --config_path configs/inference/stage1_PenCL.json \
     --model_path weights/PenCL/BioM3_PenCL_epoch20.bin \
-    --output_path outputs/pencl_embeddings.pt --device cuda
+    --output_path outputs/pencl_embeddings.pt
 
 docker/run.sh biom3_Facilitator_sample \
     --input_data_path outputs/pencl_embeddings.pt \
     --config_path configs/inference/stage2_Facilitator.json \
     --model_path weights/Facilitator/BioM3_Facilitator_epoch20.bin \
-    --output_data_path outputs/facilitator_embeddings.pt --device cuda
+    --output_data_path outputs/facilitator_embeddings.pt
 
 docker/run.sh biom3_ProteoScribe_sample \
     --input_path outputs/facilitator_embeddings.pt \
     --config_path configs/inference/stage3_ProteoScribe_sample.json \
     --model_path weights/ProteoScribe/BioM3_ProteoScribe_pfam_epoch20_v1.bin \
-    --output_path outputs/generated_sequences.pt --device cuda --fasta
+    --output_path outputs/generated_sequences.pt --fasta
 ```
 
 (Use `--device cpu` for a cheap smoke test on tiny inputs without a GPU.)
@@ -204,20 +206,25 @@ The existing wrapper scripts work unchanged in the container. Inside, `BIOM3_MAC
 
 Wrapper signature: `scripts/stageN_train_singlenode.sh CONFIG_PATH NGPU DEVICE RUN_ID [--overrides…]`
 
+Pass `auto` for `DEVICE`: it picks the image's GPU backend, so the same command runs on
+CUDA and on Aurora's XPUs. `NGPU` is always explicit, because how many ranks to run per
+node is a layout choice; a request for more devices than the container can see stops
+the run with an error saying so.
+
 ```bash
 # Stage 3 pretrain from scratch, single GPU:
 docker/run.sh scripts/stage3_train_singlenode.sh \
-    configs/stage3_training/pretrain_scratch_v1.json 1 cuda run001 --epochs 1
+    configs/stage3_training/pretrain_scratch_v1.json 1 auto run001 --epochs 1
 
 # Stage 3, 4 GPUs (NGPU must match the wrapper's NGPU arg; torchrun spawns 4 ranks):
 BIOM3_GPUS=all NGPU=4 docker/run.sh scripts/stage3_train_singlenode.sh \
-    configs/stage3_training/pretrain_scratch_v1.json 4 cuda run001 --epochs 5
+    configs/stage3_training/pretrain_scratch_v1.json 4 auto run001 --epochs 5
 
 # Stage 1 (PenCL) and Stage 2 (Facilitator):
 docker/run.sh scripts/stage1_train_singlenode.sh \
-    configs/stage1_training/pretrain_scratch_v1.json 1 cuda s1run001
+    configs/stage1_training/pretrain_scratch_v1.json 1 auto s1run001
 docker/run.sh scripts/stage2_train_singlenode.sh \
-    configs/stage2_training/pretrain_scratch_v1.json 1 cuda s2run001
+    configs/stage2_training/pretrain_scratch_v1.json 1 auto s2run001
 ```
 
 `WANDB_API_KEY` (forwarded by `run.sh` when set) enables Weights & Biases logging
@@ -229,7 +236,7 @@ Finetuning is the Stage 3 trainer with `--finetune` flags + base weights:
 
 ```bash
 docker/run.sh scripts/stage3_train_singlenode.sh \
-    configs/stage3_training/finetune_v1.json 1 cuda ft001 \
+    configs/stage3_training/finetune_v1.json 1 auto ft001 \
     --finetune True \
     --pretrained_weights weights/ProteoScribe/BioM3_ProteoScribe_pfam_epoch20_v1.bin \
     --finetune_last_n_blocks 1 --finetune_last_n_layers 1 \
@@ -243,7 +250,7 @@ preemption, resume from `last.ckpt`:
 
 ```bash
 docker/run.sh scripts/stage3_train_singlenode.sh \
-    configs/stage3_training/pretrain_scratch_v1.json 1 cuda run001 \
+    configs/stage3_training/pretrain_scratch_v1.json 1 auto run001 \
     --epochs 5 --resume_from_checkpoint outputs/<...>/checkpoints/run001/last.ckpt
 ```
 

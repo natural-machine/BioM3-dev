@@ -39,16 +39,11 @@
 #                      selects --gpus (cuda), --device /dev/dri (xpu), or no
 #                      device flags at all (cpu)
 #   BIOM3_GPUS         value for --gpus on cuda (default: all; "none" omits it)
-#   BIOM3_WEIGHTS_DIR  host weights dir  (default: ./weights, mounted ro; not
-#                      mounted when BIOM3_WEIGHTS_BUNDLE is set)
-#   BIOM3_DATA_DIR     host data dir     (default: ./data,    mounted ro)
-#   BIOM3_OUTPUTS_DIR  host outputs dir  (default: ./outputs, mounted rw)
-#   BIOM3_TESTS_TMP    host dir for the test suite's scratch, mounted rw at
-#                      /app/tests/_tmp (default: <outputs>/tests_tmp)
-#   BIOM3_CONFIGS_DIR  host configs dir  (optional; overrides baked-in configs)
-#   BIOM3_BIND_EXTRA   comma-separated host paths, each mounted read-only at the
-#                      same path in the container. An entry containing ':' is
-#                      passed to `docker run -v` unchanged (src:dst[:opts]).
+#   BIOM3_WEIGHTS_DIR, BIOM3_DATA_DIR, BIOM3_OUTPUTS_DIR, BIOM3_TESTS_TMP,
+#   BIOM3_CONFIGS_DIR, BIOM3_BIND_EXTRA
+#                      mounts, shared with the Apptainer wrappers: see
+#                      scripts/_container_mounts.sh. Host weights are not
+#                      mounted when BIOM3_WEIGHTS_BUNDLE is set.
 #   BIOM3_AS_ROOT      1 = run as root in the container instead of as the
 #                      calling user
 #   Forwarded if set:  WANDB_API_KEY, NGPU and the GHCR weights-bundle vars
@@ -58,13 +53,11 @@
 #=============================================================================
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "${SCRIPT_DIR}/../scripts/_container_mounts.sh"
+
 IMAGE="${BIOM3_IMAGE:-biom3:cuda}"
 GPUS="${BIOM3_GPUS:-all}"
-W="${BIOM3_WEIGHTS_DIR:-$PWD/weights}"
-D="${BIOM3_DATA_DIR:-$PWD/data}"
-O="${BIOM3_OUTPUTS_DIR:-$PWD/outputs}"
-T="${BIOM3_TESTS_TMP:-${O}/tests_tmp}"
-C="${BIOM3_CONFIGS_DIR:-}"
 
 # Device kind: explicit override, else infer from the image tag (":xpu" -> xpu).
 if [[ -n "${BIOM3_DEVICE_KIND:-}" ]]; then
@@ -76,8 +69,6 @@ elif [[ "${IMAGE}" == *:cpu || "${IMAGE}" == *:cpu-* ]]; then
 else
     DEVICE_KIND="cuda"
 fi
-
-mkdir -p "${O}" "${T}"
 
 ARGS=(run --rm)
 [[ -t 0 && -t 1 ]] && ARGS+=(-it)
@@ -95,29 +86,12 @@ fi
 
 # With a weights bundle, the entrypoint pulls into the container's own
 # /app/weights, which a host mount would shadow.
-[[ -d "${W}" && -z "${BIOM3_WEIGHTS_BUNDLE:-}" ]] && ARGS+=(-v "${W}:/app/weights:ro")
-[[ -d "${D}" ]] && ARGS+=(-v "${D}:/app/data:ro")
-ARGS+=(-v "${O}:/app/outputs")
-# The test suite writes its scratch inside the image, which the calling user
-# cannot write to.
-ARGS+=(-v "${T}:/app/tests/_tmp")
-[[ -n "${C}" ]] && ARGS+=(-v "${C}:/app/configs:ro")
-
-# Checked here because docker silently creates a missing bind source as an
-# empty root-owned directory on the host.
-if [[ -n "${BIOM3_BIND_EXTRA:-}" ]]; then
-    IFS=, read -ra EXTRA <<< "${BIOM3_BIND_EXTRA}"
-    for spec in "${EXTRA[@]}"; do
-        [[ -z "${spec}" ]] && continue
-        src="${spec%%:*}"
-        [[ -e "${src}" ]] || { echo "ERROR: BIOM3_BIND_EXTRA path '${src}' does not exist." >&2; exit 1; }
-        if [[ "${spec}" == *:* ]]; then
-            ARGS+=(-v "${spec}")
-        else
-            ARGS+=(-v "${spec}:${spec}:ro")
-        fi
-    done
+if [[ -n "${BIOM3_WEIGHTS_BUNDLE:-}" ]]; then
+    biom3_container_mounts --no-weights || exit 1
+else
+    biom3_container_mounts || exit 1
 fi
+for m in "${MOUNTS[@]}"; do ARGS+=(-v "${m}"); done
 
 # Forward env vars that are set in the caller's environment. `-e NAME` copies
 # the value from this process, keeping secrets off the docker command line.

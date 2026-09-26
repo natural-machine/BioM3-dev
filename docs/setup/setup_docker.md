@@ -53,11 +53,11 @@ are owned by you (`BIOM3_AS_ROOT=1` runs as root instead). The image sets
 ```bash
 # Train Stage 3 (single GPU)
 docker/run.sh scripts/stage3_train_singlenode.sh \
-    configs/stage3_training/pretrain_scratch_v1.json 1 cuda run001 --epochs 1
+    configs/stage3_training/pretrain_scratch_v1.json 1 auto run001 --epochs 1
 
 # Train on 4 GPUs (torchrun spawns one rank per GPU inside the container)
 NGPU=4 docker/run.sh scripts/stage3_train_singlenode.sh \
-    configs/stage3_training/pretrain_scratch_v1.json 4 cuda run001 --epochs 5
+    configs/stage3_training/pretrain_scratch_v1.json 4 auto run001 --epochs 5
 
 # Generate (Stage 1 → 2 → 3): see docker/README.md for the full three-command pipeline
 docker/run.sh biom3_PenCL_inference --help

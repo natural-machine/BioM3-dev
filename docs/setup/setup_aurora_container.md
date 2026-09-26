@@ -87,9 +87,11 @@ build host, `scp` it over, then
 
 ### 3. Smoke-test the GPUs (interactive, on a compute node)
 
-Grab an interactive node, then check that torch sees the 12 tiles:
+Grab an interactive node, point the wrapper at the image you built, then check that
+torch sees the 12 tiles:
 
 ```bash
+export BIOM3_IMAGE=/flare/NLDesignProtein/$USER/biom3_xpu.sif
 scripts/aurora/apptainer_run.sh python -c \
   "import torch; print('xpu', torch.xpu.is_available(), torch.xpu.device_count())"
 # expect: xpu True 12
@@ -104,7 +106,6 @@ and apply the oneCCL/`xccl`/NUMEXPR settings.
 ### 4. Run the test suite
 
 ```bash
-BIOM3_WEIGHTS_DIR=./weights BIOM3_DATA_DIR=./data \
 scripts/aurora/apptainer_run.sh pytest tests/ --include_requires_gpu
 ```
 
@@ -118,13 +119,19 @@ Everything a run writes therefore lands under the outputs directory; point
 ### 5. Run a stage (single node)
 
 ```bash
-BIOM3_WEIGHTS_DIR=./weights BIOM3_DATA_DIR=./data \
 scripts/aurora/apptainer_run.sh scripts/stage3_train_singlenode.sh \
-    configs/stage3_training/pretrain_scratch_v1.json 12 xpu run001 --epochs 1
+    configs/stage3_training/pretrain_scratch_v1.json 12 auto run001 --epochs 1
 ```
 
-`BIOM3_WEIGHTS_DIR` / `BIOM3_DATA_DIR` are bind sources, so they must exist on the
-node. Use the repo's own `weights/` and `data/`. Binding the shared copy directly
+The command is the same as on a CUDA machine except for the device count (`12`),
+which you always state: it is a layout choice, not something the wrapper infers.
+`auto` picks the XPU backend, and the run stops early if 12 devices are not visible.
+
+The wrappers mount the checkout's `weights/` and `data/` by default, with the same
+settings and defaults as `docker/run.sh` (see
+[docker/README.md](../../docker/README.md#getting-weights-and-data-into-the-container)).
+Set `BIOM3_WEIGHTS_DIR` / `BIOM3_DATA_DIR` to use other directories; they are
+mount sources, so they must exist on the node. Binding the shared copy directly
 needs its real layout — `BioM3-data-share/data/weights`, not
 `BioM3-data-share/weights` — and a path that does not exist fails every rank at
 container creation with `mount source ... doesn't exist`, before any Python runs.
@@ -187,11 +194,10 @@ ls -d /opt/cray/libfabric/*/lib64                         # confirm BIOM3_FABRIC
 
 NGPU_PER_NODE=12 NGPU_TOTAL=24 BIOM3_RANK_SOURCE=mpi \
 BIOM3_FABRIC_DIR=/opt/cray/libfabric/1.22.0/lib64 BIOM3_FI_PROVIDER=cxi \
-BIOM3_SIF="$SIF" \
-BIOM3_WEIGHTS_DIR=./weights BIOM3_DATA_DIR=./data \
+BIOM3_IMAGE="$SIF" \
 scripts/aurora/apptainer_mpi_run.sh \
     biom3_train_stage3 --config_path configs/stage3_training/pretrain_scratch_v1.json \
-    --device xpu --devices_per_node 12 --num_nodes 2 --run_id mn001 --epochs 2
+    --device auto --devices_per_node 12 --num_nodes 2 --run_id mn001 --epochs 2
 ```
 
 There is no progress bar on this path: under `mpiexec` each rank's stdout is a pipe,

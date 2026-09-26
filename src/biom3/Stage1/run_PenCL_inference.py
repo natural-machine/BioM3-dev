@@ -74,6 +74,7 @@ from biom3.core.run_utils import (
     write_manifest,
 )
 from biom3.backend.device import setup_logger, set_float32_matmul_precision
+from biom3.backend.device import DEVICE_CHOICES, resolve_device
 from biom3.core.distributed import (
     barrier,
     init_distributed_if_launched,
@@ -95,8 +96,9 @@ def parse_arguments(args):
     parser.add_argument('-o', '--output_path', type=str, required=True,
                         help="Path to save output embeddings")
     
-    parser.add_argument('--device', type=str, default="cuda", 
-                        choices=["cpu", "cuda", "xpu"], help="available device")
+    parser.add_argument('--device', type=str, default="auto",
+                        choices=list(DEVICE_CHOICES),
+                        help="available device; auto = the detected backend (CUDA, XPU, else CPU)")
     parser.add_argument('--batch_size', type=int, default=32, 
                         help="batch size")
     parser.add_argument('--num_workers', type=int, default=0,
@@ -331,6 +333,7 @@ def _merge_rank_shards(output_path: str, world_size: int):
 
 
 def main(args, _setup_logging=True):
+    args.device = resolve_device(args.device)
     # ----- Suppress noisy library warnings -----
     warnings.filterwarnings("ignore", message=".*TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD.*")
     warnings.filterwarnings("ignore", message=".*has generative capabilities.*")

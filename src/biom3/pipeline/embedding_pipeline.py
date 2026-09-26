@@ -20,6 +20,7 @@ from argparse import Namespace
 from datetime import datetime
 
 from biom3.backend.device import setup_logger
+from biom3.backend.device import DEVICE_CHOICES, resolve_device
 from biom3.core.distributed import barrier, is_main_process
 from biom3.core.helpers import load_json_config
 from biom3.core.run_utils import (
@@ -74,9 +75,9 @@ def parse_arguments(args):
 
     # Optional overrides
     parser.add_argument(
-        "--device", type=str, default="cuda",
-        choices=["cpu", "cuda", "xpu"],
-        help="Device for inference (default: cuda)"
+        "--device", type=str, default="auto",
+        choices=list(DEVICE_CHOICES),
+        help="Device for inference (default: auto = the detected backend: CUDA, XPU, else CPU)"
     )
     parser.add_argument(
         "--batch_size", type=int, default=256,
@@ -174,6 +175,7 @@ def parse_arguments(args):
 
 
 def main(args):
+    args.device = resolve_device(args.device)
     from biom3.Stage1.run_PenCL_inference import (
         parse_arguments as parse_stage1_args,
         main as run_stage1,

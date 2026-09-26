@@ -176,14 +176,13 @@ HPC job templates in `jobs/{polaris,aurora,spark}/` demonstrate how to use these
 biom3_train_stage3 \
     --config_path configs/stage3_training/pretrain_scratch_v2.json \
     --run_id my_run_v1 \
-    --device cuda \
     --epochs 10
 
 # Via multinode wrapper (from an HPC job template). Wandb is auto-resolved
 # from the WANDB_API_KEY env var; pass `--wandb True|False` to override.
 ./scripts/stage3_train_multinode.sh \
     configs/stage3_training/pretrain_scratch_v2.json \
-    2 4 cuda my_run_v1 \
+    2 4 auto my_run_v1 \
     --epochs 10 --wandb True
 ```
 
@@ -198,7 +197,6 @@ Example configs: `configs/stage3_training/finetune_v1.json`, `finetune_v2.json`.
 biom3_train_stage3 \
     --config_path configs/stage3_training/finetune_v1.json \
     --run_id finetune_v1 \
-    --device cuda \
     --pretrained_weights ./weights/ProteoScribe/BioM3_ProteoScribe_pfam_epoch20_v1.bin \
     --finetune_last_n_blocks 1 \
     --finetune_last_n_layers -1

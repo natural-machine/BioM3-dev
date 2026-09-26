@@ -74,7 +74,7 @@ scripts/polaris/apptainer_run.sh python -c \
 BIOM3_WEIGHTS_DIR=/grand/NLDesignProtein/sharepoint/BioM3-data-share/weights \
 BIOM3_DATA_DIR=/grand/NLDesignProtein/sharepoint/BioM3-data-share/data \
 scripts/polaris/apptainer_run.sh scripts/stage3_train_singlenode.sh \
-    configs/stage3_training/pretrain_scratch_v1.json 4 cuda run001 --epochs 1
+    configs/stage3_training/pretrain_scratch_v1.json 4 auto run001 --epochs 1
 ```
 
 Host dirs bind onto `/app/{weights,data,outputs}`; `outputs/` is writable, weights

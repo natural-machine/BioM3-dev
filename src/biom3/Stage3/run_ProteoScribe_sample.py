@@ -54,6 +54,7 @@ from biom3.core.run_utils import (
     write_manifest,
 )
 from biom3.backend.device import setup_logger, get_backend_name, set_float32_matmul_precision
+from biom3.backend.device import DEVICE_CHOICES, resolve_device
 from biom3.core.distributed import (
     barrier,
     broadcast_int,
@@ -85,8 +86,9 @@ def parse_arguments(args):
                         help="Path to save output embeddings")
     parser.add_argument('--seed', type=int, default=0,
                         help="seed for random number generation")
-    parser.add_argument('--device', type=str, default="cuda",
-                        choices=["cpu", "cuda", "xpu"], help="available device")
+    parser.add_argument('--device', type=str, default="auto",
+                        choices=list(DEVICE_CHOICES),
+                        help="available device; auto = the detected backend (CUDA, XPU, else CPU)")
     parser.add_argument('--unmasking_order', type=str, default=None,
                         choices=["random", "confidence", "confidence_no_pad"],
                         help="Position unmasking order: 'random' (default), "
@@ -861,6 +863,7 @@ def blend_conditioning(embedding_dataset, alpha):
     return alpha * z_p + (1.0 - alpha) * z_c
 
 def main(args, _setup_logging=True):
+    args.device = resolve_device(args.device)
     # Parse arguments
     config_args_parser = args
 

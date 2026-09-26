@@ -51,6 +51,7 @@ from biom3.core.run_utils import (
     write_manifest,
 )
 from biom3.backend.device import setup_logger, set_float32_matmul_precision
+from biom3.backend.device import DEVICE_CHOICES, resolve_device
 
 logger = setup_logger(__name__)
 
@@ -66,8 +67,9 @@ def parse_arguments(args):
     parser.add_argument('-o', '--output_data_path', type=str, required=True,
                         help="Path to save the output embeddings (e.g., Facilitator_test_outputs.pt)")
     
-    parser.add_argument('--device', type=str, default="cuda",
-                        choices=["cpu", "cuda", "xpu"], help="available device")
+    parser.add_argument('--device', type=str, default="auto",
+                        choices=list(DEVICE_CHOICES),
+                        help="available device; auto = the detected backend (CUDA, XPU, else CPU)")
     parser.add_argument('--batch_size', type=int, default=32,
                         help="batch size")
     parser.add_argument("--mmd_sample_limit", type=int, default=-1,
@@ -117,6 +119,7 @@ def compute_mmd_loss(x, y, kernel="rbf", sigma=1.0):
 
 
 def main(args, _setup_logging=True):
+    args.device = resolve_device(args.device)
 
     # ----- Suppress noisy library warnings -----
     warnings.filterwarnings("ignore", message=".*TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD.*")

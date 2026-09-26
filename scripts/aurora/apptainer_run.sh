@@ -20,20 +20,17 @@
 #   # interactive shell (GPUs visible; try `python -c "import torch;print(torch.xpu.device_count())"`)
 #   scripts/aurora/apptainer_run.sh bash
 #
-#   # single-node Stage 3 finetune on 12 tiles
-#   BIOM3_WEIGHTS_DIR=/flare/NLDesignProtein/.../weights \
-#   BIOM3_DATA_DIR=/flare/NLDesignProtein/.../data \
+#   # single-node Stage 3 training on 12 tiles
 #   scripts/aurora/apptainer_run.sh scripts/stage3_train_singlenode.sh \
-#       configs/stage3_training/pretrain_scratch_v1.json 12 xpu run001 --epochs 1
+#       configs/stage3_training/pretrain_scratch_v1.json 12 auto run001 --epochs 1
 #
 # ENV (all optional):
-#   BIOM3_SIF          path to the .sif (default: ./biom3_xpu.sif)
-#   BIOM3_WEIGHTS_DIR  host weights dir bound to /app/weights (ro)
-#   BIOM3_DATA_DIR     host data dir    bound to /app/data    (ro)
-#   BIOM3_OUTPUTS_DIR  host outputs dir bound to /app/outputs (rw; default ./outputs)
-#   BIOM3_TESTS_TMP    host dir bound to /app/tests/_tmp (rw; default <outputs>/tests_tmp)
-#   BIOM3_CONFIGS_DIR  host configs dir bound to /app/configs (ro; overrides baked-in)
-#   BIOM3_BIND_EXTRA   extra colon/comma paths to --bind (e.g. a checkpoints root)
+#   BIOM3_IMAGE        path to the .sif (default: ./biom3_xpu.sif; the older
+#                      BIOM3_SIF is still read)
+#   BIOM3_WEIGHTS_DIR, BIOM3_DATA_DIR, BIOM3_OUTPUTS_DIR, BIOM3_TESTS_TMP,
+#   BIOM3_CONFIGS_DIR, BIOM3_BIND_EXTRA
+#                      mounts, shared with docker/run.sh: see
+#                      scripts/_container_mounts.sh
 #   BIOM3_FI_PROVIDER  libfabric provider (default tcp; cxi needs host binds)
 #   BIOM3_CCL_LAUNCHER CCL_PROCESS_LAUNCHER (default torchrun; hydra|pmix|none)
 #   WANDB_API_KEY      forwarded into the container if set
@@ -42,18 +39,17 @@
 set -euo pipefail
 
 [[ $# -ge 1 ]] || { echo "USAGE: $0 <command...>   (see --help header)" >&2; exit 1; }
-[[ "$1" == "-h" || "$1" == "--help" ]] && { sed -n '3,41p' "$0"; exit 0; }
+[[ "$1" == "-h" || "$1" == "--help" ]] && { sed -n '3,/^#====/p' "$0"; exit 0; }
 
-SIF="${BIOM3_SIF:-./biom3_xpu.sif}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "${SCRIPT_DIR}/../_container_mounts.sh"
+
+SIF="${BIOM3_IMAGE:-${BIOM3_SIF:-./biom3_xpu.sif}}"
 [[ -f "${SIF}" ]] || { echo "ERROR: sif '${SIF}' not found. Build it (on a login node):" >&2
     echo "         apptainer build biom3_xpu.sif docker://ghcr.io/natural-machine/biom3:xpu-dev" >&2
-    echo "       see docs/setup/setup_aurora_container.md, or set BIOM3_SIF." >&2; exit 1; }
+    echo "       see docs/setup/setup_aurora_container.md, or set BIOM3_IMAGE." >&2; exit 1; }
 
 command -v apptainer >/dev/null 2>&1 || { echo "ERROR: apptainer not found." >&2; exit 1; }
-
-O="${BIOM3_OUTPUTS_DIR:-$PWD/outputs}"
-T="${BIOM3_TESTS_TMP:-${O}/tests_tmp}"
-mkdir -p "${O}" "${T}"
 
 # --- Binds ---------------------------------------------------------------
 # /flare   : ALCF Lustre; also what environment.sh fingerprints to pick `aurora`.
@@ -61,9 +57,11 @@ mkdir -p "${O}" "${T}"
 # Do NOT bind /dev/dri. Apptainer mounts /dev by default; adding /dev/dri as a
 # user bind remounts it `nodev`, so the GPU character devices become unusable
 # and torch.xpu.device_count() returns 0 (clinfo -l also comes back empty).
-# /app/tests/_tmp: the test suite writes its scratch inside the image, and the
-# --writable-tmpfs overlay is too small for it ("No space left on device").
-BINDS=("${O}:/app/outputs" "${T}:/app/tests/_tmp")
+# The shared mounts include /app/tests/_tmp, which matters here: the test
+# suite writes its scratch inside the image, and the --writable-tmpfs overlay
+# is too small for it ("No space left on device").
+biom3_container_mounts || exit 1
+BINDS=("${MOUNTS[@]}")
 # /lus alongside /flare: on Aurora /flare IS /lus/flare/projects, and the
 # weights/ and data/ trees are symlinks whose targets are spelled /lus/...
 # Binding only /flare leaves every one of them dangling inside the container --
@@ -71,10 +69,6 @@ BINDS=("${O}:/app/outputs" "${T}:/app/tests/_tmp")
 # directory as a malformed Hub repo id.
 [[ -d /flare ]] && BINDS+=("/flare")
 [[ -d /lus ]] && BINDS+=("/lus")
-[[ -n "${BIOM3_WEIGHTS_DIR:-}" ]] && BINDS+=("${BIOM3_WEIGHTS_DIR}:/app/weights:ro")
-[[ -n "${BIOM3_DATA_DIR:-}"    ]] && BINDS+=("${BIOM3_DATA_DIR}:/app/data:ro")
-[[ -n "${BIOM3_CONFIGS_DIR:-}" ]] && BINDS+=("${BIOM3_CONFIGS_DIR}:/app/configs:ro")
-[[ -n "${BIOM3_BIND_EXTRA:-}"  ]] && BINDS+=("${BIOM3_BIND_EXTRA}")
 
 BIND_ARG="$(IFS=,; echo "${BINDS[*]}")"
 

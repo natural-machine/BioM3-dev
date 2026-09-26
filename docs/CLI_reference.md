@@ -39,7 +39,7 @@ Produces joint protein/text embeddings (`z_p`, `z_t`) from a CSV of (sequence, p
 
 | Arg | Type | Default | Description |
 |---|---|---|---|
-| `--device` | str | `cuda` | One of `cpu`, `cuda`, `xpu`. |
+| `--device` | str | `auto` | One of `auto`, `cpu`, `cuda`, `xpu`. `auto` = the detected backend: CUDA, then XPU, else CPU. |
 | `--batch_size` | int | 32 | Inference batch size. |
 | `--num_workers` | int | 0 | DataLoader worker count. |
 | `--load_from_checkpoint` | flag | False | Force loading `model_path` as a Lightning `.ckpt` (otherwise inferred from extension). |
@@ -80,7 +80,7 @@ Maps Stage 1 text embeddings (`z_t`) into the protein-embedding space (`z_c`). C
 
 | Arg | Type | Default | Description |
 |---|---|---|---|
-| `--device` | str | `cuda` | One of `cpu`, `cuda`, `xpu`. |
+| `--device` | str | `auto` | One of `auto`, `cpu`, `cuda`, `xpu`. `auto` = the detected backend: CUDA, then XPU, else CPU. |
 | `--mmd_sample_limit` | int | -1 | Cap samples for MMD computation. `-1` = all. **Print-only** — saved `z_c` embeddings are unaffected. |
 
 #### Example
@@ -118,7 +118,7 @@ Generates protein sequences from facilitated embeddings via diffusion sampling. 
 | Arg | Type | Default | Description |
 |---|---|---|---|
 | `--seed` | int | 0 | RNG seed. |
-| `--device` | str | `cuda` | One of `cpu`, `cuda`, `xpu`. |
+| `--device` | str | `auto` | One of `auto`, `cpu`, `cuda`, `xpu`. `auto` = the detected backend: CUDA, then XPU, else CPU. |
 | `--unmasking_order` | str | None | One of `random`, `confidence`, `confidence_no_pad`. Defaults to `random`. |
 | `--token_strategy` | str | None | One of `sample` (Gumbel-max, default) or `argmax` (deterministic). |
 | `--pre_unmask` | flag | False | Start diffusion from a partially-unmasked state. Requires `--pre_unmask_config`. |
@@ -184,7 +184,7 @@ Runs `biom3_PenCL_inference` → `biom3_Facilitator_sample` → HDF5 compilation
 
 | Arg | Type | Default | Description |
 |---|---|---|---|
-| `--device` | str | `cuda` | One of `cpu`, `cuda`, `xpu`. |
+| `--device` | str | `auto` | One of `auto`, `cpu`, `cuda`, `xpu`. `auto` = the detected backend: CUDA, then XPU, else CPU. |
 | `--batch_size` | int | 256 | Stage 1 batch size. |
 | `--num_workers` | int | 0 | Stage 1 DataLoader worker count. |
 | `--no_amp` | flag | False | Forwarded to Stage 1: run the forward pass in fp32 instead of autocast. |
@@ -222,7 +222,7 @@ The argparser declares ~50 flags. Highlights below; run `biom3_train_stage1 --he
 | `--data_path` | str | None | Path to Swiss-Prot CSV. |
 | `--pfam_data_path` | str | `'None'` | Path to Pfam CSV (required when `dataset_type=pfam`). |
 | `--dataset_type` | str | `default` | One of `default`, `masked`, `pfam`, `pfam_ablated`. |
-| `--device` | str | `cuda` | One of `cuda`, `xpu`, `cpu`. |
+| `--device` | str | `auto` | One of `auto`, `cpu`, `cuda`, `xpu`. `auto` = the detected GPU backend (CUDA, then XPU); it never falls back to CPU, so pass `cpu` to train on CPU. The run also stops early if `--devices_per_node` exceeds the devices this process can see. |
 | `--devices_per_node` | int | 1 | GPUs (CUDA) or tiles (XPU) per node. (Deprecated alias: `--gpu_devices` — still accepted, emits a warning.) |
 | `--num_nodes` | int | 1 | Nodes participating in training. |
 | `--batch_size` | int | 8 | Per-device mini-batch size. |
@@ -277,7 +277,7 @@ None positional.
 | `--pfam_data_path` | str | `'None'` | Path to Stage 1 Pfam embeddings `.pt` dict. |
 | `--output_swissprot_dict_path` | str | None | Where to save Stage 2 SwissProt embeddings dict. |
 | `--output_pfam_dict_path` | str | None | Where to save Stage 2 Pfam embeddings dict. |
-| `--device` | str | `cuda` | One of `cuda`, `xpu`, `cpu`. |
+| `--device` | str | `auto` | One of `auto`, `cpu`, `cuda`, `xpu`. `auto` = the detected GPU backend (CUDA, then XPU); it never falls back to CPU, so pass `cpu` to train on CPU. The run also stops early if `--devices_per_node` exceeds the devices this process can see. |
 | `--devices_per_node` | int | 1 | GPUs/tiles per node. (Deprecated alias: `--gpu_devices`.) |
 | `--num_nodes` | int | 1 | Nodes. |
 | `--batch_size` | int | 32 | Per-device batch size. |
@@ -325,7 +325,7 @@ The argparser is the largest in the project (70+ flags across `get_args`, `get_m
 | `--lr` | float | 3e-4 | Base learning rate. |
 | `--scale_learning_rate` | str | `'True'` | Scale LR by world size. |
 | `--precision` | str | `no` | One of `no`, `fp16`, `bf16`, `32`. |
-| `--device` | str | `cuda` | One of `cpu`, `cuda`, `xpu`. |
+| `--device` | str | `auto` | One of `auto`, `cpu`, `cuda`, `xpu`. `auto` = the detected GPU backend (CUDA, then XPU); it never falls back to CPU, so pass `cpu` to train on CPU. The run also stops early if `--devices_per_node` exceeds the devices this process can see. |
 | `--devices_per_node` | int | 1 | GPUs/tiles per node. (Deprecated alias: `--gpu_devices`.) |
 | `--num_nodes` | int | 1 | Nodes. |
 | `--distributed_strategy` | str | `deepspeed_zero2` | One of `deepspeed_zero2` (DeepSpeed ZeRO-2 + CPU offload, sharded checkpoint dir) or `ddp` (plain DDP with `static_graph=True`, single-file checkpoint). Distinct from `--training_strategy` which selects `primary_only` vs `combine` *data* mixing. |

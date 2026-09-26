@@ -71,6 +71,7 @@ from torch.utils.data import DataLoader
 
 # ----- Retrieve available device -----
 from biom3.backend.device import BACKEND_NAME, _XPU, setup_logger, set_float32_matmul_precision
+from biom3.backend.device import DEVICE_CHOICES, resolve_device, check_devices_per_node
 
 # Import pytorch lightning based on device
 if BACKEND_NAME == _XPU:
@@ -205,9 +206,10 @@ def get_args(parser):
                         help='path to checkpoint directory')
     parser.add_argument('--checkpoint_prefix', default='channels',
                         help='prefix for local checkpoint')
-    parser.add_argument('--device', default='cuda', type=str, 
-                        choices=["cpu", "cuda", "xpu"],
-                        help='computational device')
+    parser.add_argument('--device', default='auto', type=str,
+                        choices=list(DEVICE_CHOICES),
+                        help='computational device; auto = the detected GPU '
+                             'backend (CUDA, then XPU; never falls back to CPU)')
     parser.add_argument('--model_option', default='transformer', type=str,
                         choices=['Unet', 'transformer'],
                         help='Choose model architecture')
@@ -1925,6 +1927,13 @@ def main(args, use_hydra=False, ds_config=None,):
     logging.getLogger("tensorboardX.x2num").setLevel(logging.ERROR)
 
     # ----- Dry-run preview (no training executed) -----
+    # A dry run only probes config, data and model, so it may land on CPU; a
+    # real run must find a GPU unless --device cpu was asked for explicitly.
+    dry_run = getattr(args, 'dry_run', False)
+    args.device = resolve_device(args.device, allow_cpu=dry_run)
+    if not dry_run:
+        check_devices_per_node(args.device, args.devices_per_node)
+
     if getattr(args, 'dry_run', False):
         return run_dry_run(
             args,

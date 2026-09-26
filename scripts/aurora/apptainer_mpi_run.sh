@@ -27,17 +27,17 @@
 # EXAMPLES:
 #   # single node, 12 tiles (use this first to validate the path)
 #   NGPU_PER_NODE=12 NGPU_TOTAL=12 \
-#   BIOM3_SIF=/flare/.../biom3_xpu-<sha>.sif \
+#   BIOM3_IMAGE=/flare/NLDesignProtein/$USER/biom3_xpu-oneapi.sif \
 #   scripts/aurora/apptainer_mpi_run.sh \
 #       biom3_train_stage3 --config_path configs/stage3_training/pretrain_scratch_v1.json \
-#       --device xpu --devices_per_node 12 --num_nodes 1 --run_id mpi001
+#       --device auto --devices_per_node 12 --num_nodes 1 --run_id mpi001
 #
 #   # two nodes, 24 tiles
 #   NGPU_PER_NODE=12 NGPU_TOTAL=24 ... (same, --num_nodes 2 --run_id mpi002)
 #
 #   # GDPO on two nodes: ONE rank per node, each owning all 12 local tiles
 #   NGPU_PER_NODE=1 NGPU_TOTAL=2 BIOM3_RANK_LAYOUT=node \
-#   BIOM3_SIF=/flare/.../biom3_xpu-oneapi-<sha>.sif \
+#   BIOM3_IMAGE=/flare/NLDesignProtein/$USER/biom3_xpu-oneapi.sif \
 #   scripts/aurora/apptainer_mpi_run.sh biom3_gdpo_train --config_path configs/grpo/...
 #
 # ENV:
@@ -46,12 +46,12 @@
 #   BIOM3_RANK_LAYOUT  tile (default) = 1 rank/tile, Stage 3 train + generate;
 #                      node = 1 rank/node with all 12 tiles, GDPO/GRPO
 #   PBS_NODEFILE       set by PBS; required for >1 node
-#   BIOM3_SIF          path to the .sif (default: ./biom3_xpu.sif)
-#   BIOM3_WEIGHTS_DIR  host weights dir bound to /app/weights (ro)
-#   BIOM3_DATA_DIR     host data dir    bound to /app/data    (ro)
-#   BIOM3_OUTPUTS_DIR  host outputs dir bound to /app/outputs (rw; default ./outputs)
-#   BIOM3_CONFIGS_DIR  host configs dir bound to /app/configs (ro)
-#   BIOM3_BIND_EXTRA   extra colon/comma paths to --bind
+#   BIOM3_IMAGE        path to the .sif (default: ./biom3_xpu.sif; the older
+#                      BIOM3_SIF is still read)
+#   BIOM3_WEIGHTS_DIR, BIOM3_DATA_DIR, BIOM3_OUTPUTS_DIR, BIOM3_TESTS_TMP,
+#   BIOM3_CONFIGS_DIR, BIOM3_BIND_EXTRA
+#                      mounts, shared with docker/run.sh: see
+#                      scripts/_container_mounts.sh
 #   BIOM3_FI_PROVIDER  libfabric provider (default tcp; see the CXI note below)
 #   BIOM3_FABRIC_DIR   host libfabric to bind over the container's (CXI; below)
 #   BIOM3_PMIX         host PMIx library (default /usr/lib64/libpmix.so.2)
@@ -71,10 +71,13 @@
 set -euo pipefail
 
 [[ $# -ge 1 ]] || { echo "USAGE: $0 <command...>   (see --help header)" >&2; exit 1; }
-[[ "$1" == "-h" || "$1" == "--help" ]] && { sed -n '3,57p' "$0"; exit 0; }
+[[ "$1" == "-h" || "$1" == "--help" ]] && { sed -n '3,/^#====/p' "$0"; exit 0; }
 
-SIF="${BIOM3_SIF:-./biom3_xpu.sif}"
-[[ -f "${SIF}" ]] || { echo "ERROR: sif '${SIF}' not found; set BIOM3_SIF." >&2; exit 1; }
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "${SCRIPT_DIR}/../_container_mounts.sh"
+
+SIF="${BIOM3_IMAGE:-${BIOM3_SIF:-./biom3_xpu.sif}}"
+[[ -f "${SIF}" ]] || { echo "ERROR: sif '${SIF}' not found; set BIOM3_IMAGE." >&2; exit 1; }
 
 command -v mpiexec >/dev/null 2>&1 || { echo "ERROR: mpiexec not found (host MPI)." >&2; exit 1; }
 command -v apptainer >/dev/null 2>&1 || { echo "ERROR: apptainer not found; module load apptainer." >&2; exit 1; }
@@ -84,9 +87,6 @@ NGPU_TOTAL="${NGPU_TOTAL:?NGPU_TOTAL env var required}"
 
 PMIX="${BIOM3_PMIX:-/usr/lib64/libpmix.so.2}"
 [[ -f "${PMIX}" ]] || { echo "ERROR: PMIx library '${PMIX}' not found; set BIOM3_PMIX." >&2; exit 1; }
-
-O="${BIOM3_OUTPUTS_DIR:-$PWD/outputs}"
-mkdir -p "${O}"
 
 # --- Binds ---------------------------------------------------------------
 # Do NOT bind /dev/dri: apptainer mounts /dev by default, and adding it as a
@@ -101,7 +101,8 @@ mkdir -p "${O}"
 # Binding only /flare leaves every one of them dangling inside the container --
 # which surfaces far from the cause, e.g. transformers reporting a local model
 # directory as a malformed Hub repo id.
-BINDS=("/flare" "${O}:/app/outputs" "${PMIX}:/hostlib/libpmix.so.2" "/usr/lib64:/hostevent")
+biom3_container_mounts || exit 1
+BINDS=("/flare" "${MOUNTS[@]}" "${PMIX}:/hostlib/libpmix.so.2" "/usr/lib64:/hostevent")
 [[ -d /lus ]] && BINDS+=("/lus")
 
 # BIOM3_FABRIC_DIR binds a host libfabric over the container's, so cross-node
@@ -123,10 +124,6 @@ if [[ -n "${BIOM3_FABRIC_DIR:-}" ]]; then
         exit 1; }
     BINDS+=("${BIOM3_FABRIC_DIR}:/hostfabric:ro")
 fi
-[[ -n "${BIOM3_WEIGHTS_DIR:-}" ]] && BINDS+=("${BIOM3_WEIGHTS_DIR}:/app/weights:ro")
-[[ -n "${BIOM3_DATA_DIR:-}"    ]] && BINDS+=("${BIOM3_DATA_DIR}:/app/data:ro")
-[[ -n "${BIOM3_CONFIGS_DIR:-}" ]] && BINDS+=("${BIOM3_CONFIGS_DIR}:/app/configs:ro")
-[[ -n "${BIOM3_BIND_EXTRA:-}"  ]] && BINDS+=("${BIOM3_BIND_EXTRA}")
 BIND_ARG="$(IFS=,; echo "${BINDS[*]}")"
 
 # --- Env into each rank's container ---------------------------------------

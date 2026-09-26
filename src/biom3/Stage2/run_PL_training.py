@@ -21,6 +21,7 @@ import numpy as np
 import torch
 
 from biom3.backend.device import BACKEND_NAME, _XPU, setup_logger, set_float32_matmul_precision
+from biom3.backend.device import DEVICE_CHOICES, resolve_device, check_devices_per_node
 
 if BACKEND_NAME == _XPU:
     import lightning as pl
@@ -143,9 +144,10 @@ def get_args(parser):
                         help="fp32 matmul precision. 'medium' (default) uses the bf16 "
                              "path; 'high' uses TF32 tensor cores; 'highest' keeps full "
                              "fp32. CLI overrides the config value.")
-    parser.add_argument('--device', type=str, default='cuda',
-                        choices=['cuda', 'xpu', 'cpu'],
-                        help='Compute device for training.')
+    parser.add_argument('--device', type=str, default='auto',
+                        choices=list(DEVICE_CHOICES),
+                        help='Compute device for training; auto = the detected '
+                             'GPU backend (CUDA, then XPU; never falls back to CPU).')
     parser.add_argument('--devices_per_node', type=int, default=None,
                         help='Number of GPUs (CUDA) or tiles (XPU) per node. Default 1.')
     parser.add_argument('--gpu_devices', type=int, default=None,
@@ -572,6 +574,13 @@ def main(args):
 
     warnings.filterwarnings("ignore", message=".*TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD.*")
     logging.getLogger("tensorboardX.x2num").setLevel(logging.ERROR)
+
+    # A dry run only probes config, data and model, so it may land on CPU; a
+    # real run must find a GPU unless --device cpu was asked for explicitly.
+    dry_run = getattr(args, 'dry_run', False)
+    args.device = resolve_device(args.device, allow_cpu=dry_run)
+    if not dry_run:
+        check_devices_per_node(args.device, args.devices_per_node)
 
     if getattr(args, 'dry_run', False):
         return run_dry_run(

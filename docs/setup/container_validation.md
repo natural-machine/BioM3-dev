@@ -15,8 +15,8 @@ output directory name, so every result is traceable.
 | `sp1` | DGX Spark | 1 × GB10 | cuda (arm64) | pass | pass | pass | pass | pass | pass |
 | `sp2` | DGX Spark | 2 × GB10 | cuda (arm64) | blocked | blocked | blocked | blocked | blocked | blocked |
 | `mac` | Local Mac | 1 × CPU | cpu (arm64) | todo | n/a | n/a | n/a | n/a | todo |
-| `au1` | Aurora | 1 × 12 tiles | xpu | todo | fail | pass | pass | todo | pass |
-| `au2` | Aurora | 2 × 12 tiles | xpu-oneapi | todo | todo | pass | pass | todo | pass |
+| `au1` | Aurora | 1 × 12 tiles | xpu | blocked | fail | pass | pass | todo | pass |
+| `au2` | Aurora | 2 × 12 tiles | xpu-oneapi | fail | todo | pass | pass | todo | pass |
 | `po1` | Polaris | 1 × 4 A100 | cuda (amd64) | todo | todo | todo | todo | todo | todo |
 | `po2` | Polaris | 2 × 4 A100 | cuda (amd64) | blocked | blocked | blocked | blocked | blocked | blocked |
 | `mi1` | Mithril | 1 × N GPU | cuda (amd64) | todo | todo | todo | todo | todo | todo |
@@ -235,15 +235,15 @@ export BIOM3_FABRIC_DIR=/opt/cray/libfabric/1.22.0/lib64 BIOM3_FI_PROVIDER=cxi
 export BIOM3_BIND_EXTRA=/lus
 R="scripts/aurora/apptainer_mpi_run.sh"
 MN="--device auto --num_nodes 2 --devices_per_node 12"
-CSV=<path to the larger CSV>              # see open item 4
 JSONL=<path to the JSONL on /flare>       # see open item 3
 mkdir -p outputs/validation/logs
 ```
 
 ```bash
-# emb
+# emb  (swap -i for $CSV once open item 4 provides a larger dataset)
 $R biom3_embedding_pipeline \
-    -i $CSV -o outputs/validation/$ROW-emb --prefix emb \
+    -i tests/_data/stage1_inputs/sample_text_seqs1.csv \
+    -o outputs/validation/$ROW-emb --prefix emb \
     --weight_set configs/weights/run1_base.json \
     --pencl_config configs/inference/stage1_PenCL.json \
     --facilitator_config configs/inference/stage2_Facilitator.json \
@@ -252,7 +252,7 @@ $R biom3_embedding_pipeline \
 # s1
 $R biom3_train_stage1 \
     --config_path configs/stage1_training/pretrain_scratch_v1.json $MN \
-    --run_id $ROW-s1 --data_path $CSV \
+    --run_id $ROW-s1 --data_path tests/_data/stage1_inputs/sample_text_seqs1.csv \
     --epochs 1 --batch_size 2 --valid_size 0.5 --wandb False \
     --output_root outputs/validation/$ROW-s1 \
     2>&1 | tee outputs/validation/logs/$ROW-s1.log
@@ -499,6 +499,31 @@ Per column:
    2026-09-26. Fix: add it to the header's `xpu-oneapi` examples. Not fixed — reported
    only.
 
+13. `emb` crashes on every rank that receives no rows, so it cannot pass wherever the
+   rank count exceeds the input row count. `run_PenCL_inference.py` guards the empty
+   case at construction —
+   ([`:503`](../../src/biom3/Stage1/run_PenCL_inference.py#L503)):
+
+   ```python
+   # len(all_batches) < world_size, so guard the empty case.
+   z_p_tensor = torch.vstack(z_p_list) if z_p_list else torch.empty(0)
+   ```
+
+   but `torch.empty(0)` is 1-D, and the reporting block at
+   [`:550`](../../src/biom3/Stage1/run_PenCL_inference.py#L550) then does
+   `torch.norm(z_p_tensor, dim=1)`, raising
+   `IndexError: Dimension out of range (expected to be in range of [-1, 0], but got 1)`.
+   Rank 0 completes normally; every empty rank dies, so the run fails before the shard
+   merge (which does tolerate empty shards,
+   [`:306`](../../src/biom3/Stage1/run_PenCL_inference.py#L306)).
+
+   Seen on `au2-emb`: 5 input rows across 24 ranks, ranks 1-23 all failed identically.
+   `au1` is marked `blocked` for the same reason — 5 rows across 12 ranks hits it too.
+   Fix: either make the empty tensors 2-D (`torch.empty(0, 0)`), or skip the magnitude
+   and reporting block when the rank holds no rows. Until then, `emb` is only testable
+   at more than one rank with an input of at least `world_size` rows, which is open
+   item 4. Not fixed — reported only.
+
 ## Prior evidence
 
 These runs happened before this matrix existed. They are context only: re-run each one
@@ -533,6 +558,7 @@ Add one line per run, newest last. List any deviation from the standard command.
 | `au2-pt` | 2026-09-26 | xpu-oneapi-25e440d | pass | — | 24 ranks with `BIOM3_RANK_SOURCE=mpi`, CXI fabric, DeepSpeed ZeRO-2. Run by the user. |
 | `au2-ft` | 2026-09-26 | xpu-oneapi-25e440d | pass | — | 24 ranks, as above. Run by the user. |
 | `au2-gen` | 2026-09-26 | xpu-oneapi-25e440d | pass | — | 24 ranks, as above. Run by the user. |
+| `au2-emb` | 2026-09-26 | xpu-oneapi-25e440d | fail | — | 24 ranks, 5 input rows. Ranks 1-23 held no rows and all raised `IndexError` at the z_p magnitude line (open item 13). Rank 0 completed and printed correct `[5, 512]` shapes. Run by the user. |
 
 The whole `sp1` row was re-run against `cuda-25e440d` after the rebuild, rather than
 carrying over the `cuda-2066a75` results, because the image had moved five commits.

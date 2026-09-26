@@ -46,6 +46,7 @@ from biom3.core.run_utils import setup_file_logging, teardown_file_logging
 from biom3.core.distributed import get_global_rank
 from biom3.backend.device import (
     print_gpu_initialization, setup_logger, set_float32_matmul_precision,
+    resolve_device, check_devices_per_node,
 )
 
 logger = setup_logger(__name__)
@@ -354,7 +355,14 @@ def main(args, ds_config=None):
     logging.getLogger("tensorboardX.x2num").setLevel(logging.ERROR)
 
     # ----- Dry-run preview (no training executed) -----
-    if getattr(args, 'dry_run', False):
+    # A dry run only probes config, data and model, so it may land on CPU; a
+    # real run must find a GPU unless --device cpu was asked for explicitly.
+    dry_run = getattr(args, 'dry_run', False)
+    args.device = resolve_device(args.device, allow_cpu=dry_run)
+    if not dry_run:
+        check_devices_per_node(args.device, args.devices_per_node)
+
+    if dry_run:
         return run_dry_run(
             args,
             stage="stage3_finetune",

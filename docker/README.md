@@ -320,22 +320,23 @@ launcher translates those into a **`torchrun` static rendezvous**
 ([`core/_dist_env.py`](../src/biom3/core/_dist_env.py)) and Lightning already read. No
 Python changes.
 
-- **Enable it:** in `cloud/{finetune,generate,pretrain}.mithril.yaml`, set
-  `resources.num_nodes > 1` and `accelerators` to the **per-node** GPU count (`NGPU` must
-  match). The job scripts dispatch on `NNODES` (defaulting to `$SKYPILOT_NUM_NODES`) to
-  `stage3_train_multinode.sh`.
-- **Checkpointing = DDP, not DeepSpeed.** Mithril/AWS spot clusters have **no shared
-  filesystem**, so DeepSpeed ZeRO's per-rank optimizer shards would scatter across nodes'
-  local disks and can't be consolidated. The scripts default `--distributed_strategy ddp`
-  when `NNODES>1`: a single `.ckpt` is written entirely by **global rank 0** (on the
-  `SKYPILOT_NODE_RANK==0` node), so the task yaml gates `BIOM3_OUTPUTS_PUSH_URI` to that
-  node. Revisit DeepSpeed multi-node only with a shared FS.
+- **Enable it:** launch [`cloud/run.mithril.yaml`](../cloud/run.mithril.yaml) with
+  `--num-nodes N` and `--gpus` set to the **per-node** GPU count, and run the multi-node
+  wrapper in `CMD`: `bash scripts/stage3_train_multinode.sh <config> N <gpus-per-node> auto
+  <run_id> --distributed_strategy ddp`. It dispatches to `container_multinode.sh` because
+  the image sets `BIOM3_MACHINE=container`. See
+  [cloud/README.md](../cloud/README.md#multi-node-training).
+- **Checkpointing = DDP, not DeepSpeed.** Cloud instances share **no filesystem**, so
+  DeepSpeed ZeRO's per-rank optimizer shards would scatter across nodes' local disks and
+  can't be consolidated. Pass `--distributed_strategy ddp`: a single `.ckpt` is then
+  written entirely by **global rank 0**, on the head node (`SKYPILOT_NODE_RANK==0`), whose
+  `/app/outputs` is the one to copy off. Revisit DeepSpeed multi-node only with a shared FS.
 - **NCCL:** the launcher auto-detects the private-net (`10.x`) interface for
   `NCCL_SOCKET_IFNAME` and disables InfiniBand (`NCCL_IB_DISABLE=1`); the task uses
   `--net=host --ipc=host`. Debug a first run with `NCCL_DEBUG=INFO`.
-- **Data:** each node's container S3-syncs its own copy — prefer `PRIMARY_HDF5`/
-  `BIOM3_DATA_URI` (identical bytes per node) over on-the-fly CSV embedding so every rank
-  builds identical `DistributedSampler` shards.
+- **Data:** every node needs its own identical copy of the training data. Prefer a
+  precompiled HDF5 over on-the-fly CSV embedding, so every rank builds identical
+  `DistributedSampler` shards.
 - **Generation** parallelizes only Stage-3 sampling (the sampler is rank-aware; only rank
   0 writes). Stages 1–2 run per node and Facilitator sampling is stochastic — verify
   determinism with a fixed `SEED` before trusting multi-node output.

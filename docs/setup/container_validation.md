@@ -43,11 +43,22 @@ Columns:
 
 | Variant | Tag | Rows |
 | ------- | --- | ---- |
-| cuda | `ghcr.io/natural-machine/biom3:cuda-25e440d` (amd64 + arm64; also `cuda-dev`) | `spark_*` |
-| xpu | `ghcr.io/natural-machine/biom3:xpu-25e440d` (amd64; also `xpu-dev`) | `aurora_v1_*` |
-| xpu-oneapi | `ghcr.io/natural-machine/biom3:xpu-oneapi-25e440d` (amd64; also `xpu-oneapi-dev`) | `aurora_v2_*` |
+| cuda | `ghcr.io/natural-machine/biom3:cuda-779859b` (amd64 + arm64; also `cuda-dev`) | `spark_*` |
+| xpu | `ghcr.io/natural-machine/biom3:xpu-779859b` (amd64; also `xpu-dev`) | `aurora_v1_*` |
+| xpu-oneapi | `ghcr.io/natural-machine/biom3:xpu-oneapi-779859b` (amd64; also `xpu-oneapi-dev`) | `aurora_v2_*` |
 
 If an image is rebuilt, update this table and re-run the affected cells.
+
+The `779859b` images are the first to carry `biom3_fetch_weights`, both test
+fixtures, and the Stage 1 XPU and empty-rank fixes. The Aurora `.sif` files must
+be rebuilt from these tags before the `aurora_*` rows mean anything:
+
+```bash
+apptainer build /flare/NLDesignProtein/biom3_images/biom3-xpu-779859b.sif \
+    docker://ghcr.io/natural-machine/biom3:xpu-779859b
+apptainer build /flare/NLDesignProtein/biom3_images/biom3-xpu-oneapi-779859b.sif \
+    docker://ghcr.io/natural-machine/biom3:xpu-oneapi-779859b
+```
 
 ## Standard inputs
 
@@ -92,7 +103,7 @@ Each command tees to `outputs/validation/logs/$ROW-<column>.log`.
 
 ```bash
 export ROW=spark_n1 NGPU=1
-export BIOM3_IMAGE=ghcr.io/natural-machine/biom3:cuda-25e440d
+export BIOM3_IMAGE=ghcr.io/natural-machine/biom3:cuda-779859b
 export BIOM3_BIND_EXTRA=/data/data-share,/data/biom3_data
 R="docker/run.sh"; LAUNCH=""
 mkdir -p outputs/validation/logs
@@ -110,7 +121,7 @@ The `xpu` image, single node, ranks spawned by `torchrun` inside one container. 
 
 ```bash
 export ROW=aurora_v1_n1d12 NGPU=12
-export BIOM3_IMAGE=/flare/NLDesignProtein/biom3_images/biom3-xpu-25e440d.sif
+export BIOM3_IMAGE=/flare/NLDesignProtein/biom3_images/biom3-xpu-779859b.sif
 export BIOM3_BIND_EXTRA=/lus
 R="scripts/aurora/apptainer_run.sh"
 LAUNCH="scripts/launchers/container_singlenode.sh"
@@ -128,7 +139,7 @@ export NODES=2 DEV=12           # 1/12, 2/12, 1/1 or 2/1
 export ROW=aurora_v2_n${NODES}d${DEV}
 export NGPU_PER_NODE=$DEV NGPU_TOTAL=$((NODES * DEV))
 export BIOM3_RANK_SOURCE=mpi
-export BIOM3_IMAGE=/flare/NLDesignProtein/biom3_images/biom3-xpu-oneapi-25e440d.sif
+export BIOM3_IMAGE=/flare/NLDesignProtein/biom3_images/biom3-xpu-oneapi-779859b.sif
 export BIOM3_BIND_EXTRA=/lus
 # multi-node only: drive Slingshot rather than tcp
 [ "$NODES" -gt 1 ] && export BIOM3_FABRIC_DIR=/opt/cray/libfabric/1.22.0/lib64 \
@@ -298,7 +309,7 @@ Per column:
 ## Open items
 
 1. Retired — no row uses the cpu image. (Was: the cpu image is stale; it was rebuilt as
-   `cpu-25e440d`.)
+   `cpu-779859b`.)
 2. Retired — Polaris is not in the grid. The finding stands if it returns:
    `scripts/polaris/apptainer_run.sh` does not set `BIOM3_LAUNCHER=container`, so the
    training wrappers dispatch to `polaris_singlenode.sh`, which passes Cray `mpiexec`
@@ -328,7 +339,7 @@ Per column:
    (unlike its two siblings), so the raw string `auto` reached
    `torch.load(..., map_location="auto")` and every `gft` run died before the first step.
    Fixed in `38725a5` by applying the same resolve/`check_devices_per_node` block the
-   Stage 3 trainer uses, and shipped in the `25e440d` images. It passed on CUDA before the
+   Stage 3 trainer uses, and shipped in the `779859b` images. It passed on CUDA before the
    grid was reset; not re-verified under the current grid. The fix also gives `gft` the
    `check_devices_per_node` guard it never had, so an over-large `--devices_per_node`
    now fails early rather than mid-run — worth knowing on Aurora, where a tile count
@@ -355,8 +366,7 @@ Per column:
    the 20 steps requested. Worth deciding whether `max_steps` should
    warn or apply in epoch mode. Not fixed here — reported only.
 
-11. ~~Stage 1 `s1` fails on XPU with more than one rank.~~ **Fixed in `0d4a374`; pending
-   an image rebuild.** `PL_PEN_CL` computes the RankME effective ranks from singular
+11. ~~Stage 1 `s1` fails on XPU with more than one rank.~~ **Fixed in `0d4a374`, in the `779859b` images.** `PL_PEN_CL` computes the RankME effective ranks from singular
    values taken on CPU, then logged them with `sync_dist=True`
    ([`src/biom3/Stage1/PL_wrapper.py:447`](../../src/biom3/Stage1/PL_wrapper.py#L447)).
    Lightning all-reduces whatever it is handed, and an XPU process group is `xccl`-only
@@ -381,7 +391,7 @@ Per column:
    it. No image rebuild needed: the wrappers run on the host.
 
 13. `emb` crashed on every rank that received no rows. **Fixed in `4ea2435`**; the fix is
-   host-side, in `scripts/aurora/apptainer_mpi_run.sh`, so it needs no image rebuild. Not
+   host-side, in `scripts/aurora/apptainer_mpi_run.sh`, so it needs no image rebuild. In the `779859b` images. Not
    re-verified under the current grid.
 
    Two corrections to earlier versions of this item. The fix shipped as `4ea2435` (one line

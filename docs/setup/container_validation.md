@@ -15,8 +15,8 @@ output directory name, so every result is traceable.
 | `sp1` | DGX Spark | 1 × GB10 | cuda (arm64) | pass | pass | pass | pass | pass | pass |
 | `sp2` | DGX Spark | 2 × GB10 | cuda (arm64) | blocked | blocked | blocked | blocked | blocked | blocked |
 | `mac` | Local Mac | 1 × CPU | cpu (arm64) | todo | n/a | n/a | n/a | n/a | todo |
-| `au1` | Aurora | 1 × 12 tiles | xpu | blocked | fail | pass | pass | todo | pass |
-| `au2` | Aurora | 2 × 12 tiles | xpu-oneapi | fail | todo | pass | pass | todo | pass |
+| `au1` | Aurora | 1 × 12 tiles | xpu | pass | fail | pass | pass | todo | pass |
+| `au2` | Aurora | 2 × 12 tiles | xpu-oneapi | pass | todo | pass | pass | todo | pass |
 | `po1` | Polaris | 1 × 4 A100 | cuda (amd64) | todo | todo | todo | todo | todo | todo |
 | `po2` | Polaris | 2 × 4 A100 | cuda (amd64) | blocked | blocked | blocked | blocked | blocked | blocked |
 | `mi1` | Mithril | 1 × N GPU | cuda (amd64) | todo | todo | todo | todo | todo | todo |
@@ -389,7 +389,7 @@ Per column:
 | `s1`, `pt`, `ft`, `gft` | At least one optimizer step and one validation pass, with finite training and validation loss. A checkpoint is written under `checkpoints/<row>-<column>/` and run artifacts (`args.json`, `run.log`) under `runs/<row>-<column>/`. With more than 1 node, rank 0 writes the checkpoint once. |
 | `ft` | The log shows the `run1_base` weights loaded with no missing or unexpected keys, and the trainable parameter count matches the finetune flags. |
 | `gft` | The log shows captions composed from the records and z_c computed on the device, not read from a file. |
-| `gen` | 25 sequences (5 prompts × 5 replicas) in `generated.pt` and the FASTA, containing only amino-acid letters. With more than 1 rank: the same sequences as a 1-rank run on the same machine with `--seed 42`. |
+| `gen` | 25 sequences (5 prompts × 5 replicas) in `generated.pt` and the FASTA, containing only amino-acid letters, written by rank 0 only. **No cross-run sequence equality is required** — see open item 14. |
 
 ## Row notes
 
@@ -490,8 +490,17 @@ Per column:
    than the native path for `xpu-oneapi`. All three examples now set it, and `ENV` lists
    it. No image rebuild needed: the wrappers run on the host.
 
-13. ~~`emb` crashes on every rank that receives no rows.~~ **Root cause found and fixed
-   in `4f5e05c`; pending an image rebuild.** The crash (23 ranks raising
+13. ~~`emb` crashes on every rank that receives no rows.~~ **Closed 2026-09-27**, confirmed
+   on hardware by `au2-emb` with no rebuild, since the fix is host-side.
+
+   Two corrections to earlier versions of this item. The fix shipped as `4ea2435` (one line
+   in `scripts/aurora/apptainer_mpi_run.sh`), not `4f5e05c` — that earlier attempt read
+   `BIOM3_WORLD_SIZE` in `biom3.core` instead and was reverted. And `au1-emb` was marked
+   `blocked` here on the inference that "5 rows across 12 ranks hits it too"; that was
+   wrong. `au1` goes through `torchrun`, which sets `WORLD_SIZE` correctly, so it never had
+   the bug and had in fact already passed on 2026-09-26.
+
+   Original diagnosis, unchanged: The crash (23 ranks raising
    `IndexError: Dimension out of range` from `torch.norm(z_p_tensor, dim=1)`) was a
    symptom, not the defect. The defect: with `BIOM3_RANK_SOURCE=mpi` the MPI wrapper
    skips the PALS-to-torch variable translation, so `WORLD_SIZE` is never set. Rank
@@ -515,6 +524,24 @@ Per column:
    empty-rank tensors 2-D so the reporting block survives a rank that legitimately holds
    no rows. `pytest tests/ --quick` clean (1382 passed), plus stage1/core/pipeline
    (244 passed). The `emb` cells stay `blocked` until the images are rebuilt.
+
+14. Stage 3 generation is not bitwise reproducible on XPU, even comparing two runs through
+   the same wrapper: 10 of 25 sequences identical, the rest differing by single residues.
+   So the original `gen` criterion ("the same sequences as a 1-rank run with `--seed 42`")
+   cannot be met on Aurora and has been removed. Found by the Aurora agent 2026-09-27.
+   Whether this is acceptable non-determinism or a seeding defect is unresolved; until it
+   is, `gen` is checked on count, alphabet and rank-0-only writing. Note `seed=0` means
+   "random seed" by convention, so a `--seed 42` run is expected to be seeded.
+
+15. **Single-node Aurora needs no wrapper at all.** `apptainer exec --cleanenv` plus
+   `torchrun` runs `pt`, `ft` and `gen` on the unmodified published images. Of everything
+   `scripts/aurora/apptainer_run.sh` sets, only
+   `CCL_TOPO_FABRIC_VERTEX_CONNECTION_CHECK=0` changes the outcome: with it the losses
+   match the wrapper exactly (3.3902 → 1.0308 at step 200) and the run is ~18% faster.
+   Found by the Aurora agent 2026-09-27. This is the strongest evidence so far for the
+   clone-free goal in
+   [`../misc/container_interface_design.md`](../misc/container_interface_design.md), and it
+   narrows the single-node profile to one variable.
 
 ## Prior evidence
 
@@ -550,6 +577,8 @@ Add one line per run, newest last. List any deviation from the standard command.
 | `au2-pt` | 2026-09-26 | xpu-oneapi-25e440d | pass | — | 24 ranks with `BIOM3_RANK_SOURCE=mpi`, CXI fabric, DeepSpeed ZeRO-2. Run by the user. |
 | `au2-ft` | 2026-09-26 | xpu-oneapi-25e440d | pass | — | 24 ranks, as above. Run by the user. |
 | `au2-gen` | 2026-09-26 | xpu-oneapi-25e440d | pass | — | 24 ranks, as above. Run by the user. |
+| `au1-emb` | 2026-09-26 | xpu-25e440d | pass | — | 12 ranks via torchrun. `world_size=12 exceeds the 1 batch(es) available; 11 rank(s) will sit idle`, `Merged 5 rows from 12 rank shard(s)`, HDF5 5 samples, no `IndexError`. It had passed all along; the grid said `blocked` on a wrong inference (see below). |
+| `au2-emb` | 2026-09-27 | xpu-oneapi-25e440d + wrapper `4ea2435` | pass | — | 24 ranks, CXI, **no rebuild** — the fix is host-side. `world_size=24 exceeds the 1 batch(es) available; 23 rank(s) will sit idle`, `Merged 5 rows from 24 rank shard(s)`, HDF5 `(5,)`, no `IndexError`. Confirms the world-size fix on hardware. Prior failed run kept at `outputs/validation/au2-emb.pre-4ea2435/`. |
 | `au2-emb` | 2026-09-26 | xpu-oneapi-25e440d | fail | — | 24 ranks, 5 input rows. Ranks 1-23 held no rows and all raised `IndexError` at the z_p magnitude line (open item 13). Rank 0 completed and printed correct `[5, 512]` shapes. Run by the user. |
 
 The whole `sp1` row was re-run against `cuda-25e440d` after the rebuild, rather than

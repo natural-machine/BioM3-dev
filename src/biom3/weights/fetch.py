@@ -9,7 +9,8 @@ import subprocess
 import sys
 
 DEFAULT_REGISTRY = "ghcr.io/natural-machine/biom3-weights"
-TEST_WEIGHTS_TAG = "test_weights"
+TEST_WEIGHTS_REGISTRY = "ghcr.io/natural-machine/biom3-test-weights"
+TEST_WEIGHTS_TAG = "latest"
 WEIGHTS_PREFIX = "weights/"
 
 _ORAS_MISSING = (
@@ -149,7 +150,7 @@ def parse_arguments(argv=None):
         epilog=(
             "examples:\n"
             "  biom3_fetch_weights run1_base -o ./weights\n"
-            "  biom3_fetch_weights --test_weights -o ./weights\n"
+            "  biom3_fetch_weights --test_weights -o ./weights   # everything the tests need\n"
             "  biom3_fetch_weights run1_base -o ./weights --dry_run\n"
             "\nlist available bundles:\n"
             f"  oras repo tags {DEFAULT_REGISTRY}"
@@ -163,8 +164,8 @@ def parse_arguments(argv=None):
     parser.add_argument("--registry", default=DEFAULT_REGISTRY,
                         help=f"OCI repository holding the bundles (default: {DEFAULT_REGISTRY})")
     parser.add_argument("--test_weights", action="store_true",
-                        help=f"shortcut for the '{TEST_WEIGHTS_TAG}' bundle, which holds "
-                             "everything the test suite needs")
+                        help="shortcut for the published set of weights the test suite "
+                             f"needs ({TEST_WEIGHTS_REGISTRY})")
     parser.add_argument("--include_configs", action="store_true",
                         help="also take the bundle's non-weight files")
     parser.add_argument("--force", action="store_true",
@@ -177,6 +178,8 @@ def parse_arguments(argv=None):
         if args.bundle:
             parser.error("give either a bundle tag or --test_weights, not both")
         args.bundle = TEST_WEIGHTS_TAG
+        if args.registry == DEFAULT_REGISTRY:
+            args.registry = TEST_WEIGHTS_REGISTRY
     elif not args.bundle:
         parser.error("a bundle tag is required (or pass --test_weights)")
     return args

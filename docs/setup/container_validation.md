@@ -77,10 +77,10 @@ image under `/app/tests/_data`, so they need no mount, except where noted.
 | z_c for 5 prompts | `tests/_data/embeddings/test_Facilitator_embeddings.pt` | `gen` |
 
 Getting `run1_base` into the checkout's `weights/` before a row that mounts it:
-`scripts/link_weights.sh` symlinks them from a shared canonical directory (on Spark,
-`/data/data-share/BioM3-data-share/data/weights`), or fetch the published bundle once with
-`scripts/weights_bundle/fetch_bundle.sh`. Rows that set `BIOM3_WEIGHTS_BUNDLE` instead
-need no local `weights/` at all.
+`biom3_fetch_weights run1_base -o weights` pulls the published bundle (6.4 GB, skipping
+files already present by digest), or `scripts/link_weights.sh` symlinks them from a shared
+canonical directory (on Spark, `/data/data-share/BioM3-data-share/data/weights`). Rows that
+set `BIOM3_WEIGHTS_BUNDLE` instead need no local `weights/` at all.
 
 ## Running a row
 
@@ -104,15 +104,25 @@ Each command tees to `outputs/validation/logs/$ROW-<column>.log`.
 ```bash
 export ROW=spark_n1 NGPU=1
 export BIOM3_IMAGE=ghcr.io/natural-machine/biom3:cuda-779859b
-export BIOM3_BIND_EXTRA=/data/data-share,/data/biom3_data
 R="docker/run.sh"; LAUNCH=""
 mkdir -p outputs/validation/logs
 ```
 
-`BIOM3_BIND_EXTRA` is needed because this checkout's `weights/` holds absolute symlinks
-into `/data/data-share` and `/data/biom3_data`; a link inside a mount resolves inside the
-container, so both have to be mounted at the same path. To see where yours point:
-`find weights -type l -exec readlink {} + | cut -d/ -f1-4 | sort | uniq -c`.
+In a fresh clone, fetch `run1_base` into this checkout's `weights/` first. `docker/run.sh`
+mounts `weights/` read-only, so bind it read-write directly for the fetch:
+
+```bash
+docker run --rm -u "$(id -u):$(id -g)" -v "$PWD/weights:/weights" \
+    $BIOM3_IMAGE biom3_fetch_weights run1_base -o /weights
+```
+
+6.4 GB; a re-run skips each file whose bytes already match the registry's digest.
+
+If instead your `weights/` holds absolute symlinks into a shared directory
+(`scripts/link_weights.sh`), every link target has to be mounted at the same path, since a
+link inside a mount resolves inside the container — add
+`export BIOM3_BIND_EXTRA=/data/data-share,/data/biom3_data` to the preamble. To see where
+yours point: `find weights -type l -exec readlink {} + | cut -d/ -f1-4 | sort | uniq -c`.
 
 ### Row preamble: `aurora_v1_n1d12`
 

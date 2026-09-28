@@ -309,7 +309,7 @@ Per column:
 ## Open items
 
 1. Retired — no row uses the cpu image. (Was: the cpu image is stale; it was rebuilt as
-   `cpu-779859b`.)
+   `cpu-25e440d` on 2026-09-26, and again as `cpu-779859b` on 2026-09-27.)
 2. Retired — Polaris is not in the grid. The finding stands if it returns:
    `scripts/polaris/apptainer_run.sh` does not set `BIOM3_LAUNCHER=container`, so the
    training wrappers dispatch to `polaris_singlenode.sh`, which passes Cray `mpiexec`
@@ -339,8 +339,9 @@ Per column:
    (unlike its two siblings), so the raw string `auto` reached
    `torch.load(..., map_location="auto")` and every `gft` run died before the first step.
    Fixed in `38725a5` by applying the same resolve/`check_devices_per_node` block the
-   Stage 3 trainer uses, and shipped in the `779859b` images. It passed on CUDA before the
-   grid was reset; not re-verified under the current grid. The fix also gives `gft` the
+   Stage 3 trainer uses, first shipped in the `25e440d` images and still present in
+   `779859b`. It passed on CUDA before the grid was reset; not re-verified under the
+   current grid. The fix also gives `gft` the
    `check_devices_per_node` guard it never had, so an over-large `--devices_per_node`
    now fails early rather than mid-run — worth knowing on Aurora, where a tile count
    that previously slipped through will now be rejected up front.

@@ -114,6 +114,12 @@ docker run --rm -u "$(id -u):$(id -g)" \
     biom3_fetch_weights run1_base -o /weights
 ```
 
+`/weights` here is just a scratch mount point for this one setup step, not part of BioM3's
+layout — the later commands mount the same host directory at `/app/weights` instead, and
+read-only. Do not shorten this to `-o ./weights`: that resolves to the image's own
+`/app/weights`, which is root-owned, so the fetch either fails outright or (if you drop
+`-u`) writes 6.4 GB into the container that `--rm` then throws away.
+
 This takes a while — it is 6.4 GB. It prints each file as it lands. If it is interrupted,
 run it again: files already on disk are checked against the published checksum and skipped
 when they match, so a second run resumes rather than restarts. A partly written file is

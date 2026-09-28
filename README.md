@@ -52,6 +52,10 @@ For installation and setup instructions on the following machines, refer to the 
 | DGX Spark | [setup_spark.md](./docs/setup/setup_spark.md) |
 | Docker | [setup_docker.md](./docs/setup/setup_docker.md) |
 
+To run BioM3 from the published container image without cloning this repository at all —
+install Docker, fetch the weights, embed and generate — see
+[docs/setup/user_quickstart.md](./docs/setup/user_quickstart.md).
+
 ## Usage
 
 After the pip installation, a number of entrypoints should be available from the command line. These include scripts to run Stages 1, 2, and 3 in inference mode, training entrypoints for all three stages, and Stage 3 finetuning.

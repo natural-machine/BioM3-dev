@@ -802,81 +802,81 @@ def main(args):
         os.makedirs(logs_dir, exist_ok=True)
         os.makedirs(artifacts_dir, exist_ok=True)
     log_path, file_handler = setup_file_logging(artifacts_dir)
+    try:
+        set_float32_matmul_precision(args.float32_matmul_precision)
+        clear_gpu_cache()
 
-    set_float32_matmul_precision(args.float32_matmul_precision)
-    clear_gpu_cache()
+        seed = args.seed
+        if seed <= 0:
+            seed = np.random.randint(2 ** 32)
+            args.seed = seed
+        set_seed(seed)
+        logger.info("Using seed: %s", seed)
 
-    seed = args.seed
-    if seed <= 0:
-        seed = np.random.randint(2 ** 32)
-        args.seed = seed
-    set_seed(seed)
-    logger.info("Using seed: %s", seed)
+        data_module, PL_model = get_dataloaders_models(args=args)
+        logger.info("PenCL parameters: %s", sum(p.numel() for p in PL_model.model.parameters()))
 
-    data_module, PL_model = get_dataloaders_models(args=args)
-    logger.info("PenCL parameters: %s", sum(p.numel() for p in PL_model.model.parameters()))
+        if args.pretrained_weights is not None and os.path.exists(args.pretrained_weights):
+            PL_model = load_pretrained_weights(PL_model, args.pretrained_weights)
+        elif args.pretrained_weights is not None:
+            logger.warning("Pretrained weights path does not exist: %s", args.pretrained_weights)
 
-    if args.pretrained_weights is not None and os.path.exists(args.pretrained_weights):
-        PL_model = load_pretrained_weights(PL_model, args.pretrained_weights)
-    elif args.pretrained_weights is not None:
-        logger.warning("Pretrained weights path does not exist: %s", args.pretrained_weights)
+        train_model(args=args, PL_model=PL_model, data_module=data_module)
 
-    train_model(args=args, PL_model=PL_model, data_module=data_module)
+        if get_global_rank() == 0:
+            elapsed = datetime.now() - start_time
 
-    if get_global_rank() == 0:
-        elapsed = datetime.now() - start_time
+            args_path = os.path.join(artifacts_dir, "args.json")
+            backup_if_exists(args_path)
+            with open(args_path, "w") as f:
+                json.dump({k: v for k, v in vars(args).items() if not k.startswith("_")},
+                          f, indent=2, default=str)
+            logger.info("Args written to %s", args_path)
 
-        args_path = os.path.join(artifacts_dir, "args.json")
-        backup_if_exists(args_path)
-        with open(args_path, "w") as f:
-            json.dump({k: v for k, v in vars(args).items() if not k.startswith("_")},
-                      f, indent=2, default=str)
-        logger.info("Args written to %s", args_path)
+            total_params = sum(p.numel() for p in PL_model.model.parameters())
+            trainable_params = sum(
+                p.numel() for p in PL_model.model.parameters() if p.requires_grad
+            )
 
-        total_params = sum(p.numel() for p in PL_model.model.parameters())
-        trainable_params = sum(
-            p.numel() for p in PL_model.model.parameters() if p.requires_grad
-        )
+            outputs = {
+                "seed": args.seed,
+                "total_params": total_params,
+                "trainable_params": trainable_params,
+                "batch_size": args.batch_size,
+                "head_lr": args.head_lr,
+                "protein_encoder_lr": args.protein_encoder_lr,
+                "text_encoder_lr": args.text_encoder_lr,
+                "precision": args.precision,
+                "devices_per_node": args.devices_per_node,
+                "num_nodes": args.num_nodes,
+                "acc_grad_batches": args.acc_grad_batches,
+                "epochs": args.epochs,
+                "dataset_type": args.dataset_type,
+                "model_type": args.model_type,
+            }
 
-        outputs = {
-            "seed": args.seed,
-            "total_params": total_params,
-            "trainable_params": trainable_params,
-            "batch_size": args.batch_size,
-            "head_lr": args.head_lr,
-            "protein_encoder_lr": args.protein_encoder_lr,
-            "text_encoder_lr": args.text_encoder_lr,
-            "precision": args.precision,
-            "devices_per_node": args.devices_per_node,
-            "num_nodes": args.num_nodes,
-            "acc_grad_batches": args.acc_grad_batches,
-            "epochs": args.epochs,
-            "dataset_type": args.dataset_type,
-            "model_type": args.model_type,
-        }
+            resolved_paths = {
+                "checkpoint_dir": os.path.abspath(checkpoint_dir),
+                "artifacts_dir": os.path.abspath(artifacts_dir),
+            }
+            if args.data_path is not None:
+                resolved_paths["data_path"] = os.path.abspath(args.data_path)
+            if args.pfam_data_path is not None:
+                resolved_paths["pfam_data_path"] = os.path.abspath(args.pfam_data_path)
+            if args.pretrained_weights is not None:
+                resolved_paths["pretrained_weights"] = os.path.abspath(args.pretrained_weights)
+            if args.resume_from_checkpoint is not None:
+                resolved_paths["resume_from_checkpoint"] = os.path.abspath(args.resume_from_checkpoint)
 
-        resolved_paths = {
-            "checkpoint_dir": os.path.abspath(checkpoint_dir),
-            "artifacts_dir": os.path.abspath(artifacts_dir),
-        }
-        if args.data_path is not None:
-            resolved_paths["data_path"] = os.path.abspath(args.data_path)
-        if args.pfam_data_path is not None:
-            resolved_paths["pfam_data_path"] = os.path.abspath(args.pfam_data_path)
-        if args.pretrained_weights is not None:
-            resolved_paths["pretrained_weights"] = os.path.abspath(args.pretrained_weights)
-        if args.resume_from_checkpoint is not None:
-            resolved_paths["resume_from_checkpoint"] = os.path.abspath(args.resume_from_checkpoint)
-
-        manifest_path = write_manifest(
-            args, artifacts_dir, start_time, elapsed,
-            outputs=outputs,
-            resolved_paths=resolved_paths,
-            environment=collect_training_env(),
-        )
-        logger.info("Build manifest written to %s", manifest_path)
-
-    teardown_file_logging("biom3", file_handler)
+            manifest_path = write_manifest(
+                args, artifacts_dir, start_time, elapsed,
+                outputs=outputs,
+                resolved_paths=resolved_paths,
+                environment=collect_training_env(),
+            )
+            logger.info("Build manifest written to %s", manifest_path)
+    finally:
+        teardown_file_logging("biom3", file_handler)
 
 
 _DRY_RUN_CACHE = {}

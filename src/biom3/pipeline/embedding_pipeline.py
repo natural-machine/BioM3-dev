@@ -195,146 +195,148 @@ def main(args):
     file_handler = None
     if is_main_process():
         log_path, file_handler = setup_file_logging(args.output_dir)
-    start_time = datetime.now()
-    logger.info("=" * 60)
-    logger.info(
-        "Embedding pipeline (Stage 1 -> Stage 2 -> %s)",
-        "Stage 3" if args.generate else "HDF5",
-    )
-    logger.info("biom3 version: %s (git: %s)", get_biom3_version(), get_git_hash())
-    logger.info("Command:     %s", " ".join(sys.argv))
-    logger.info("=" * 60)
-
-    # Load config contents for manifest
-    pencl_config_contents = load_json_config(args.pencl_config)
-    facilitator_config_contents = load_json_config(args.facilitator_config)
-
-    # Intermediate file paths
-    pencl_output = os.path.join(args.output_dir, f"{args.prefix}.PenCL_emb.pt")
-    facilitator_output = os.path.join(args.output_dir, f"{args.prefix}.Facilitator_emb.pt")
-    hdf5_output = os.path.join(args.output_dir, f"{args.prefix}.compiled_emb.hdf5")
-    generated_output = os.path.join(args.output_dir, f"{args.prefix}.generated.pt")
-
-    # --- Stage 1: PenCL inference ---
-    logger.info("=" * 60)
-    logger.info("Stage 1: PenCL inference")
-    logger.info("=" * 60)
-    stage1_args = parse_stage1_args([
-        "-i", args.input_data_path,
-        "-c", args.pencl_config,
-        "-m", args.pencl_weights,
-        "-o", pencl_output,
-        "--device", args.device,
-        "--batch_size", str(args.batch_size),
-        "--num_workers", str(args.num_workers),
-        "--cross_comparison_sample_limit", str(args.cross_comparison_sample_limit),
-        "--text_padding", args.text_padding,
-    ] + (["--no_amp"] if args.no_amp else [])
-      + (["--float32_matmul_precision", args.float32_matmul_precision]
-         if args.float32_matmul_precision else []))
-    run_stage1(stage1_args, _setup_logging=False)
-
-    # Stage 1 shards across ranks when launched under a launcher and writes
-    # pencl_output on the main rank only; wait for it before reading.
-    barrier()
-
-    # --- Stage 2: Facilitator sampling ---
-    # Main rank only: the Facilitator is a small MLP, so there is nothing to gain
-    # from sharding it, and every rank writing the same file would race.
-    if is_main_process():
+    try:
+        start_time = datetime.now()
         logger.info("=" * 60)
-        logger.info("Stage 2: Facilitator sampling")
-        logger.info("=" * 60)
-        stage2_args = parse_stage2_args([
-            "-i", pencl_output,
-            "-c", args.facilitator_config,
-            "-m", args.facilitator_weights,
-            "-o", facilitator_output,
-            "--device", args.device,
-            "--batch_size", str(args.stage2_batch_size),
-            "--mmd_sample_limit", str(args.mmd_sample_limit),
-        ])
-        run_stage2(stage2_args, _setup_logging=False)
-    barrier()
-
-    if args.generate:
-        # --- Stage 3: ProteoScribe sampling ---
-        from biom3.Stage3.run_ProteoScribe_sample import (
-            parse_arguments as parse_stage3_args,
-            main as run_stage3,
+        logger.info(
+            "Embedding pipeline (Stage 1 -> Stage 2 -> %s)",
+            "Stage 3" if args.generate else "HDF5",
         )
+        logger.info("biom3 version: %s (git: %s)", get_biom3_version(), get_git_hash())
+        logger.info("Command:     %s", " ".join(sys.argv))
+        logger.info("=" * 60)
 
+        # Load config contents for manifest
+        pencl_config_contents = load_json_config(args.pencl_config)
+        facilitator_config_contents = load_json_config(args.facilitator_config)
+
+        # Intermediate file paths
+        pencl_output = os.path.join(args.output_dir, f"{args.prefix}.PenCL_emb.pt")
+        facilitator_output = os.path.join(args.output_dir, f"{args.prefix}.Facilitator_emb.pt")
+        hdf5_output = os.path.join(args.output_dir, f"{args.prefix}.compiled_emb.hdf5")
+        generated_output = os.path.join(args.output_dir, f"{args.prefix}.generated.pt")
+
+        # --- Stage 1: PenCL inference ---
         logger.info("=" * 60)
-        logger.info("Stage 3: ProteoScribe sampling")
+        logger.info("Stage 1: PenCL inference")
         logger.info("=" * 60)
-        stage3_argv = [
-            "-i", facilitator_output,
-            "-c", args.proteoscribe_config,
-            "-m", args.proteoscribe_weights,
-            "-o", generated_output,
+        stage1_args = parse_stage1_args([
+            "-i", args.input_data_path,
+            "-c", args.pencl_config,
+            "-m", args.pencl_weights,
+            "-o", pencl_output,
             "--device", args.device,
-            "--seed", str(args.seed),
-        ]
-        if args.fasta:
-            stage3_argv.append("--fasta")
-        if args.token_strategy:
-            stage3_argv += ["--token_strategy", args.token_strategy]
-        if args.unmasking_order:
-            stage3_argv += ["--unmasking_order", args.unmasking_order]
-        run_stage3(parse_stage3_args(stage3_argv), _setup_logging=False)
-        final_output = generated_output
-    else:
-        # --- Compile to HDF5 --- (main rank only; single small write)
+            "--batch_size", str(args.batch_size),
+            "--num_workers", str(args.num_workers),
+            "--cross_comparison_sample_limit", str(args.cross_comparison_sample_limit),
+            "--text_padding", args.text_padding,
+        ] + (["--no_amp"] if args.no_amp else [])
+          + (["--float32_matmul_precision", args.float32_matmul_precision]
+             if args.float32_matmul_precision else []))
+        run_stage1(stage1_args, _setup_logging=False)
+
+        # Stage 1 shards across ranks when launched under a launcher and writes
+        # pencl_output on the main rank only; wait for it before reading.
+        barrier()
+
+        # --- Stage 2: Facilitator sampling ---
+        # Main rank only: the Facilitator is a small MLP, so there is nothing to gain
+        # from sharding it, and every rank writing the same file would race.
         if is_main_process():
             logger.info("=" * 60)
-            logger.info("Compiling Stage 2 output to HDF5")
+            logger.info("Stage 2: Facilitator sampling")
             logger.info("=" * 60)
-            compile_args = parse_compile_args([
-                "-i", facilitator_output,
-                "-o", hdf5_output,
-                "--dataset_key", args.dataset_key,
+            stage2_args = parse_stage2_args([
+                "-i", pencl_output,
+                "-c", args.facilitator_config,
+                "-m", args.facilitator_weights,
+                "-o", facilitator_output,
+                "--device", args.device,
+                "--batch_size", str(args.stage2_batch_size),
+                "--mmd_sample_limit", str(args.mmd_sample_limit),
             ])
-            run_compile(compile_args, _setup_logging=False)
-        final_output = hdf5_output
+            run_stage2(stage2_args, _setup_logging=False)
+        barrier()
 
-    logger.info("=" * 60)
-    if not is_main_process():
-        return
+        if args.generate:
+            # --- Stage 3: ProteoScribe sampling ---
+            from biom3.Stage3.run_ProteoScribe_sample import (
+                parse_arguments as parse_stage3_args,
+                main as run_stage3,
+            )
 
-    logger.info("Pipeline complete. Output: %s", final_output)
-    logger.info("=" * 60)
+            logger.info("=" * 60)
+            logger.info("Stage 3: ProteoScribe sampling")
+            logger.info("=" * 60)
+            stage3_argv = [
+                "-i", facilitator_output,
+                "-c", args.proteoscribe_config,
+                "-m", args.proteoscribe_weights,
+                "-o", generated_output,
+                "--device", args.device,
+                "--seed", str(args.seed),
+            ]
+            if args.fasta:
+                stage3_argv.append("--fasta")
+            if args.token_strategy:
+                stage3_argv += ["--token_strategy", args.token_strategy]
+            if args.unmasking_order:
+                stage3_argv += ["--unmasking_order", args.unmasking_order]
+            run_stage3(parse_stage3_args(stage3_argv), _setup_logging=False)
+            final_output = generated_output
+        else:
+            # --- Compile to HDF5 --- (main rank only; single small write)
+            if is_main_process():
+                logger.info("=" * 60)
+                logger.info("Compiling Stage 2 output to HDF5")
+                logger.info("=" * 60)
+                compile_args = parse_compile_args([
+                    "-i", facilitator_output,
+                    "-o", hdf5_output,
+                    "--dataset_key", args.dataset_key,
+                ])
+                run_compile(compile_args, _setup_logging=False)
+            final_output = hdf5_output
 
-    # Write manifest and clean up logging
-    elapsed = datetime.now() - start_time
-    outputs = {
-        "pencl_output": os.path.abspath(pencl_output),
-        "facilitator_output": os.path.abspath(facilitator_output),
-    }
-    resolved_paths = {
-        "input_data_path": os.path.abspath(args.input_data_path),
-        "weight_set": os.path.abspath(args.weight_set) if args.weight_set else None,
-        "pencl_weights": os.path.abspath(args.pencl_weights),
-        "facilitator_weights": os.path.abspath(args.facilitator_weights),
-        "pencl_config": os.path.abspath(args.pencl_config),
-        "facilitator_config": os.path.abspath(args.facilitator_config),
-    }
-    config_contents = {
-        "pencl": pencl_config_contents,
-        "facilitator": facilitator_config_contents,
-    }
-    if args.generate:
-        outputs["generated_output"] = os.path.abspath(generated_output)
-        resolved_paths["proteoscribe_weights"] = os.path.abspath(args.proteoscribe_weights)
-        resolved_paths["proteoscribe_config"] = os.path.abspath(args.proteoscribe_config)
-        config_contents["proteoscribe"] = load_json_config(args.proteoscribe_config)
-    else:
-        outputs["hdf5_output"] = os.path.abspath(hdf5_output)
+        logger.info("=" * 60)
+        if not is_main_process():
+            return
 
-    write_manifest(
-        args, args.output_dir, start_time, elapsed,
-        outputs=outputs,
-        resolved_paths=resolved_paths,
-        config_contents=config_contents,
-    )
-    logger.info("Done in %s", elapsed)
-    teardown_file_logging("biom3", file_handler)
+        logger.info("Pipeline complete. Output: %s", final_output)
+        logger.info("=" * 60)
+
+        # Write manifest
+        elapsed = datetime.now() - start_time
+        outputs = {
+            "pencl_output": os.path.abspath(pencl_output),
+            "facilitator_output": os.path.abspath(facilitator_output),
+        }
+        resolved_paths = {
+            "input_data_path": os.path.abspath(args.input_data_path),
+            "weight_set": os.path.abspath(args.weight_set) if args.weight_set else None,
+            "pencl_weights": os.path.abspath(args.pencl_weights),
+            "facilitator_weights": os.path.abspath(args.facilitator_weights),
+            "pencl_config": os.path.abspath(args.pencl_config),
+            "facilitator_config": os.path.abspath(args.facilitator_config),
+        }
+        config_contents = {
+            "pencl": pencl_config_contents,
+            "facilitator": facilitator_config_contents,
+        }
+        if args.generate:
+            outputs["generated_output"] = os.path.abspath(generated_output)
+            resolved_paths["proteoscribe_weights"] = os.path.abspath(args.proteoscribe_weights)
+            resolved_paths["proteoscribe_config"] = os.path.abspath(args.proteoscribe_config)
+            config_contents["proteoscribe"] = load_json_config(args.proteoscribe_config)
+        else:
+            outputs["hdf5_output"] = os.path.abspath(hdf5_output)
+
+        write_manifest(
+            args, args.output_dir, start_time, elapsed,
+            outputs=outputs,
+            resolved_paths=resolved_paths,
+            config_contents=config_contents,
+        )
+        logger.info("Done in %s", elapsed)
+    finally:
+        teardown_file_logging("biom3", file_handler)

@@ -209,7 +209,7 @@ def collate_fn(
     texts, sequences, accessions = zip(*batch)
 
     # -------- TEXT TOKENIZATION --------
-    text_inputs = dataset.text_tokenizer.batch_encode_plus(
+    text_inputs = dataset.text_tokenizer(
         list(texts),
         truncation=True,
         max_length=dataset.text_max_length,
@@ -266,7 +266,7 @@ class TextSeqPairing_Dataset(Dataset):
     def caption_tokenizer(self, batch_captions: list) -> dict:
         
         # transform input text tokens
-        text_inputs = self.text_tokenizer.batch_encode_plus(
+        text_inputs = self.text_tokenizer(
                             batch_captions,
                             truncation=True,
                             max_length=self.text_max_length,
@@ -353,7 +353,7 @@ class MaskTextSeqPairing_Dataset(Dataset):
     def caption_tokenizer(self, batch_captions: list) -> dict:
 
         # transform input text tokens
-        text_inputs = self.text_tokenizer.batch_encode_plus(
+        text_inputs = self.text_tokenizer(
                             batch_captions,
                             truncation=True,
                             max_length=self.text_max_length,
@@ -541,7 +541,7 @@ class Pfam_TextSeqPairing_Dataset(Dataset):
     def caption_tokenizer(self, batch_captions: list) -> dict:
 
         # transform input text tokens
-        text_inputs = self.text_tokenizer.batch_encode_plus(
+        text_inputs = self.text_tokenizer(
                             batch_captions,
                             truncation=True,
                             max_length=self.text_max_length,

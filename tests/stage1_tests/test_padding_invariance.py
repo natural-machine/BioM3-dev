@@ -70,7 +70,7 @@ def _build():
 
 def _z_t(tok, enc, proj, captions, args, padding, use_mask=True):
     """Reproduce the training z_t path for a batch of captions."""
-    batch = tok.batch_encode_plus(
+    batch = tok(
         captions,
         truncation=True,
         max_length=args.text_max_length,

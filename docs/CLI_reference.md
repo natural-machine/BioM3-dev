@@ -179,7 +179,7 @@ Runs `biom3_PenCL_inference` → `biom3_Facilitator_sample` → HDF5 compilation
 | `--facilitator_weights` | str | Path to Facilitator weights or checkpoint. |
 | `--pencl_config` | str | Path to Stage 1 JSON config. |
 | `--facilitator_config` | str | Path to Stage 2 JSON config. |
-| `--prefix` | str | Filename prefix for intermediate and final output files. |
+| `--prefix` | str | Filename prefix for intermediate and final output files, the run log (`<prefix>.run.log`), and the manifest (`<prefix>.build_manifest.json`). |
 
 #### Optional arguments
 

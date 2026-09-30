@@ -74,8 +74,8 @@ outputs/demo/
 ├── example.PenCL_emb.pt          # Stage 1 output: z_t and z_p
 ├── example.Facilitator_emb.pt    # Stage 2 output: z_t, z_p, and z_c
 ├── example.compiled_emb.hdf5     # the same embeddings packaged into hdf5 format
-├── build_manifest.json           # the exact arguments, weights, and configs used
-└── run.log                       # the run's console output
+├── example.build_manifest.json   # the exact arguments, weights, and configs used
+└── example.run.log               # the run's console output
 ```
 
 The filenames come from `--prefix`, and everything lands directly in the `--output_dir`
@@ -381,9 +381,9 @@ This writes, under `outputs/embeds/`:
 | `run1.PenCL_emb.pt` | Stage 1 output: `z_t` and `z_p` |
 | `run1.Facilitator_emb.pt` | Stage 2 output: `z_c`, the input to generation |
 | `run1.compiled_emb.hdf5` | the same embeddings packaged for Stage 3 training |
-| `run.log`, `build_manifest.json` | the run's log and its exact settings |
+| `run1.run.log`, `run1.build_manifest.json` | the run's log and its exact settings |
 
-`run.log` reports the mean squared error between `z_c` and `z_p`. A small value means the
+`run1.run.log` reports the mean squared error between `z_c` and `z_p`. A small value means the
 caption placed the model near the protein family you described.
 
 Useful options: `--device {auto,cpu,cuda,xpu}` (default `auto`), `--batch_size` (Stage 1,

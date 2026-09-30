@@ -70,7 +70,8 @@ def parse_arguments(args):
     )
     parser.add_argument(
         "--prefix", type=str, required=True,
-        help="Filename prefix for intermediate and final output files"
+        help="Filename prefix for intermediate and final output files, the "
+             "run log, and the manifest"
     )
 
     # Optional overrides
@@ -219,7 +220,8 @@ def main(args):
     # Set up dual logging (console + file). Only the main rank owns the file.
     file_handler = None
     if is_main_process():
-        log_path, file_handler = setup_file_logging(args.output_dir)
+        log_path, file_handler = setup_file_logging(
+            args.output_dir, log_filename=f"{args.prefix}.run.log")
     try:
         start_time = datetime.now()
         logger.info("=" * 60)
@@ -348,6 +350,7 @@ def main(args):
             outputs=outputs,
             resolved_paths=resolved_paths,
             config_contents=config_contents,
+            manifest_filename=f"{args.prefix}.build_manifest.json",
         )
         logger.info("Done in %s", elapsed)
     finally:

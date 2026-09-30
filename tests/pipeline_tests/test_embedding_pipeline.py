@@ -79,11 +79,16 @@ def test_embedding_pipeline(expect_error_context, device):
             f"{prefix}.PenCL_emb.pt",
             f"{prefix}.Facilitator_emb.pt",
             f"{prefix}.compiled_emb.hdf5",
+            f"{prefix}.run.log",
+            f"{prefix}.build_manifest.json",
         ]
         for fname in expected_files:
             fpath = os.path.join(OUTPUTS_DIR, fname)
             if not os.path.isfile(fpath):
                 errors.append(f"Expected output file not found: {fpath}")
+        for fname in ["run.log", "build_manifest.json"]:
+            if os.path.exists(os.path.join(OUTPUTS_DIR, fname)):
+                errors.append(f"Unprefixed {fname} written to the output directory")
 
         # Verify HDF5 structure
         hdf5_path = os.path.join(OUTPUTS_DIR, f"{prefix}.compiled_emb.hdf5")

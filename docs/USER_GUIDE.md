@@ -308,13 +308,26 @@ The Stage 3 module, ProteoScribe, is an order-agnostic autoregressive diffusion 
 
 The finetuning process begins with the curation and construction of a suitable finetuning dataset. One should first assemble a collection of protein sequence-caption pairs, for example from the SwissProt or Pfam databases. Create a csv file with the header `primary_Accession,protein_sequence,[final]text_caption`. The accession field is arbitrary, but should contain string values. The sequence and text columns should contain the protein sequences and text captions, respectively, wrapped in double quotes in case of commas.
 
-For the sake of example, assume that one has a csv file stored in a project directory under `data/familyA.csv`. Start by running the embedding pipeline (Stages 1 and 2) with your family csv as input, as documented above, following the specific instructions for your particular use case. In the commands below, we assume that the appropriate `biom3_embedding_pipeline` command has been run, with outputs directed to `outputs/ft_embeddings/`, for example via
+As a worked example, this section uses a small published dataset of green fluorescent protein (GFP) sequences: 219 sequence-caption pairs from the Pfam family PF01353. Fetch it into `data/` with
 
 ```bash
-biom3_embedding_pipeline -i data/familyA.csv -o outputs/ft_embeddings --prefix familyA ...
+biom3_fetch_dataset gfp_demo -o data
 ```
 
-This should populate the `outputs/ft_embeddings/` directory with a number of .pt files, as well as a compiled .hdf5 file, e.g. `familyA.compiled_emb.hdf5`. This file will serve as the direct input for finetuning. The generic command to run the finetuning entrypoint is shown below, with the essential arguments described. Variations of this command may be used on different machines, detailed below.
+This writes `data/gfp_sample_dataset.csv`, along with `data/gfp_sample_dataset.NOTICE.md`. To finetune on your own family instead, substitute your csv file in the commands below.
+
+Start by running the embedding pipeline (Stages 1 and 2) with the family csv as input, as documented above, following the specific instructions for your particular use case. In the commands below, we assume that outputs are directed to `outputs/ft_embeddings/`:
+
+```bash
+biom3_embedding_pipeline \
+    -i data/gfp_sample_dataset.csv \
+    -o outputs/ft_embeddings --prefix gfp_demo \
+    --weight_set configs/weights/run1_base.json \
+    --pencl_config configs/inference/stage1_PenCL.json \
+    --facilitator_config configs/inference/stage2_Facilitator.json
+```
+
+This should populate the `outputs/ft_embeddings/` directory with a number of .pt files, as well as a compiled .hdf5 file, `gfp_demo.compiled_emb.hdf5`. This file will serve as the direct input for finetuning. The generic command to run the finetuning entrypoint is shown below, with the essential arguments described. Variations of this command may be used on different machines, detailed below.
 
 The finetuning entrypoint is run via the `biom3_train_stage3` command, with the argument `--finetune True`.
 
@@ -325,10 +338,10 @@ biom3_train_stage3 \
     --finetune_last_n_blocks 1 \
     --finetune_last_n_layers -1 \
     --finetune_output_layers True \
-    --primary_data_path outputs/ft_embeddings/familyA.compiled_emb.hdf5 \
+    --primary_data_path outputs/ft_embeddings/gfp_demo.compiled_emb.hdf5 \
     --pretrained_weights weights/ProteoScribe/run1_base_proteoscribe.bin \
-    --output_root outputs/familyA_ft_results \
-    --run_id familyA_ft001 \
+    --output_root outputs/gfp_ft_results \
+    --run_id gfp_ft001 \
     --device cuda --num_nodes 1 --devices_per_node 1 \
     --distributed_strategy ddp \
     --epochs 3 --batch_size 16 --wandb False
@@ -353,13 +366,13 @@ biom3_train_stage3 \
 * `--batch_size`: Batch size.
 * `--wandb`: `True` or `False`. Set to True to track the run in weights&biases, provided you have an API key. Otherwise set to False. When enabled, a `wandb/` directory appears under `runs/<run_id>/logs/` alongside `lightning_logs/`.
 
-A finetuning run should result in a populated output directory with the structure shown below. Specifying the `output_root` as `outputs/familyA_ft_results` creates the directory (if it doesn't already exist) as well as subdirectories for checkpoints and individual run results. Both subdirectories are keyed on `--run_id`, so a single `output_root` can hold many runs without them colliding, and the bulky checkpoints stay separate from the small logs and artifacts. Continuing a run to further epochs is done with `--resume_from_checkpoint`, pointing at a specific `.ckpt` under `checkpoints/<run_id>/`.
+A finetuning run should result in a populated output directory with the structure shown below. Specifying the `output_root` as `outputs/gfp_ft_results` creates the directory (if it doesn't already exist) as well as subdirectories for checkpoints and individual run results. Both subdirectories are keyed on `--run_id`, so a single `output_root` can hold many runs without them colliding, and the bulky checkpoints stay separate from the small logs and artifacts. Continuing a run to further epochs is done with `--resume_from_checkpoint`, pointing at a specific `.ckpt` under `checkpoints/<run_id>/`.
 
 ```txt
-outputs/familyA_ft_results/
-├── checkpoints/familyA_ft001/
-│   └── epoch=2-step=48.ckpt
-└── runs/familyA_ft001/
+outputs/gfp_ft_results/
+├── checkpoints/gfp_ft001/
+│   └── epoch=2-step=33.ckpt
+└── runs/gfp_ft001/
     ├── logs/
     │   └── lightning_logs/
     └── artifacts/
@@ -407,10 +420,10 @@ biom3_train_stage3 \
     --finetune_last_n_blocks 1 \
     --finetune_last_n_layers -1 \
     --finetune_output_layers True \
-    --primary_data_path outputs/ft_embeddings/familyA.compiled_emb.hdf5 \
+    --primary_data_path outputs/ft_embeddings/gfp_demo.compiled_emb.hdf5 \
     --pretrained_weights weights/ProteoScribe/run1_base_proteoscribe.bin \
-    --output_root outputs/familyA_ft_results \
-    --run_id familyA_ft001 \
+    --output_root outputs/gfp_ft_results \
+    --run_id gfp_ft001 \
     --device cuda --num_nodes 1 --devices_per_node 1 \
     --distributed_strategy ddp \
     --epochs 3 --batch_size 16 --wandb False
@@ -420,12 +433,31 @@ biom3_train_stage3 \
 
 Follow the steps detailed above in the Quickstart instructions to ensure Docker is installed on your machine and that you have pulled down a BioM3 image with a `cuda` tag.
 
-Ensure that the config, weights, and data directories are created and that you have the correct configuration files and weights. Then, run the command as above, but with the appropriate docker additions:
+Fetch the weights as described in the Quickstart. Then fetch the GFP dataset and embed it, using the same commands as above run through the container:
 
 ```bash
 export BIOM3_IMAGE=ghcr.io/ranganathanlab/biom3:cuda-779859b
-mkdir -p outputs
+mkdir -p weights data outputs
 
+docker run --rm -u "$(id -u):$(id -g)" -v "$PWD/data:/app/data" \
+    $BIOM3_IMAGE biom3_fetch_dataset gfp_demo -o /app/data
+
+docker run --rm --gpus all -u "$(id -u):$(id -g)" \
+    -v "$PWD/weights:/app/weights:ro" \
+    -v "$PWD/data:/app/data:ro" \
+    -v "$PWD/outputs:/app/outputs" \
+    $BIOM3_IMAGE \
+    biom3_embedding_pipeline \
+        -i data/gfp_sample_dataset.csv \
+        -o outputs/ft_embeddings --prefix gfp_demo \
+        --weight_set configs/weights/run1_base.json \
+        --pencl_config configs/inference/stage1_PenCL.json \
+        --facilitator_config configs/inference/stage2_Facilitator.json
+```
+
+Then run the finetuning command as above, with the appropriate docker additions:
+
+```bash
 docker run --rm --gpus all -u "$(id -u):$(id -g)" \
     -v "$PWD/weights:/app/weights:ro" \
     -v "$PWD/outputs:/app/outputs" \
@@ -436,18 +468,38 @@ docker run --rm --gpus all -u "$(id -u):$(id -g)" \
         --finetune_last_n_blocks 1 \
         --finetune_last_n_layers -1 \
         --finetune_output_layers True \
-        --primary_data_path outputs/ft_embeddings/familyA.compiled_emb.hdf5 \
+        --primary_data_path outputs/ft_embeddings/gfp_demo.compiled_emb.hdf5 \
         --pretrained_weights weights/ProteoScribe/run1_base_proteoscribe.bin \
-        --output_root outputs/familyA_ft_results \
-        --run_id familyA_ft001 \
+        --output_root outputs/gfp_ft_results \
+        --run_id gfp_ft001 \
         --device cuda --num_nodes 1 --devices_per_node 1 \
         --distributed_strategy ddp \
         --epochs 3 --batch_size 16 --wandb False
 ```
 
-#### On Aurora
+#### On Aurora, from a code checkout
 
 **Single node, 1 device per node**
 
 **Multinode, 12 devices per node**
 
+
+#### On Aurora, using an Apptainer image
+
+Follow the steps detailed above in the Quickstart instructions to convert an appropriate docker image into an Apptainer image, or check with your PI to see if a shared Apptainer image already exists.
+
+**Single node, 1 device per node**
+
+On a compute node, either interactively or through a PBS script, run the following command.
+
+```bash
+
+```
+
+**Multinode, 12 devices per node**
+
+Through a PBS script, request N nodes and run the following command.
+
+```bash
+
+```

@@ -9,9 +9,19 @@ This document details aspects of the BioM3 project that are relevant to develope
 The `BioM3-dev` repo is maintained under the [Ranganathan Lab GitHub](https://github.com/ranganathanlab/BioM3-dev).
 There are two primary branches, `main` and `dev`. These are both protected, and changes to them should be made via pull requests.
 
-## BioM3 weights
+## BioM3 weights and datasets
 
 ### Publishing BioM3 weights
+
+### Publishing BioM3 datasets
+
+```bash
+cd /path/to/BioM3-dev
+REPO=ghcr.io/<org>/biom3  # e.g. ghcr.io/ranganathanlab/biom3
+
+python scripts/weights_bundle/build_bundle.py scripts/weights_bundle/bundle_specs/gfp_demo.json -o ~/biom3-bundles
+scripts/weights_bundle/push_bundle.sh ~/biom3-bundles/biom3-datasets-gfp_demo gfp_demo --repo $REPO --kind dataset
+```
 
 ## Containerizing BioM3
 

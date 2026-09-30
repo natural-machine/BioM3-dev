@@ -22,7 +22,7 @@ from datetime import datetime
 from biom3.backend.device import setup_logger
 from biom3.backend.device import DEVICE_CHOICES, resolve_device
 from biom3.core.distributed import barrier, is_main_process
-from biom3.core.helpers import load_json_config
+from biom3.core.helpers import load_json_config, optional_positive_int
 from biom3.core.run_utils import (
     get_biom3_version,
     get_git_hash,
@@ -155,6 +155,11 @@ def parse_arguments(args):
         "--unmasking_order", type=str, default=None,
         help="Stage 3 unmasking order (passed through to the sampler)"
     )
+    parser.add_argument(
+        "--num_replicas", type=optional_positive_int, default=None,
+        help="Stage 3 sequences per prompt (passed through to the sampler; "
+             "unset defers to the sampler's config-then-default resolution)"
+    )
     parsed = parser.parse_args(args)
 
     weight_keys = ["pencl_weights", "facilitator_weights"]
@@ -172,6 +177,26 @@ def parse_arguments(args):
     if parsed.generate and not parsed.proteoscribe_config:
         parser.error("--proteoscribe_config is required with --generate")
     return parsed
+
+
+def _build_stage3_argv(args, input_path, output_path):
+    argv = [
+        "-i", input_path,
+        "-c", args.proteoscribe_config,
+        "-m", args.proteoscribe_weights,
+        "-o", output_path,
+        "--device", args.device,
+        "--seed", str(args.seed),
+    ]
+    if args.fasta:
+        argv.append("--fasta")
+    if args.token_strategy:
+        argv += ["--token_strategy", args.token_strategy]
+    if args.unmasking_order:
+        argv += ["--unmasking_order", args.unmasking_order]
+    if args.num_replicas is not None:
+        argv += ["--num_replicas", str(args.num_replicas)]
+    return argv
 
 
 def main(args):
@@ -268,20 +293,7 @@ def main(args):
             logger.info("=" * 60)
             logger.info("Stage 3: ProteoScribe sampling")
             logger.info("=" * 60)
-            stage3_argv = [
-                "-i", facilitator_output,
-                "-c", args.proteoscribe_config,
-                "-m", args.proteoscribe_weights,
-                "-o", generated_output,
-                "--device", args.device,
-                "--seed", str(args.seed),
-            ]
-            if args.fasta:
-                stage3_argv.append("--fasta")
-            if args.token_strategy:
-                stage3_argv += ["--token_strategy", args.token_strategy]
-            if args.unmasking_order:
-                stage3_argv += ["--unmasking_order", args.unmasking_order]
+            stage3_argv = _build_stage3_argv(args, facilitator_output, generated_output)
             run_stage3(parse_stage3_args(stage3_argv), _setup_logging=False)
             final_output = generated_output
         else:

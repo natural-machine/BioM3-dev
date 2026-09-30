@@ -224,7 +224,7 @@ This stage generates protein sequences from the facilitated text embeddings (`z_
 
 **Arguments:** see [docs/CLI_reference.md#biom3_proteoscribe_sample--stage-3-sequence-generation](./docs/CLI_reference.md#biom3_proteoscribe_sample--stage-3-sequence-generation). Animation, FASTA, and pre-unmask flags are documented there as well.
 
-> **Note:** To control sampling behavior (number of sequences per prompt, batch size, diffusion steps), edit `num_replicas`, `batch_size_sample`, and `diffusion_steps` in the JSON config.
+> **Note:** The number of sequences per prompt is set by `--num_replicas`, which overrides `num_replicas` in the JSON config (default 5 when neither sets it). Batch size and diffusion steps are set by `batch_size_sample` and `diffusion_steps` in the JSON config.
 
 #### Example: standard usage following Stage 2
 

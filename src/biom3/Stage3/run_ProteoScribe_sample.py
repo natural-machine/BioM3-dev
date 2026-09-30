@@ -45,7 +45,7 @@ import torch.nn as nn
 import biom3.Stage3.sampling_analysis as Stage3_sample_tools
 import biom3.Stage3.animation_tools as Stage3_ani_tools
 from biom3.Stage3.io import prepare_model_ProteoScribe
-from biom3.core.helpers import load_json_config, convert_to_namespace
+from biom3.core.helpers import load_json_config, convert_to_namespace, optional_positive_int
 from biom3.core.run_utils import (
     get_biom3_version,
     get_git_hash,
@@ -71,6 +71,8 @@ from biom3.Stage3.inpaint import (
 )
 
 logger = setup_logger(__name__)
+
+DEFAULT_NUM_REPLICAS = 5
 
 
 # Step 0: Argument Parser Function
@@ -98,6 +100,11 @@ def parse_arguments(args):
     parser.add_argument('--token_strategy', type=str, default=None,
                         choices=["sample", "argmax"],
                         help="Token selection: 'sample' (Gumbel-max, default) or 'argmax' (deterministic)")
+    parser.add_argument('--num_replicas', type=optional_positive_int, default=None,
+                        metavar='N',
+                        help="Sequences to generate per prompt. Overrides the "
+                             "config's num_replicas; when neither sets it, "
+                             f"defaults to {DEFAULT_NUM_REPLICAS}. 'None' means unset.")
     parser.add_argument('--animate_prompts', type=str, nargs='+', default=None,
                         metavar='IDX',
                         help="Prompt indices to animate (e.g. 0 1 2), 'all', or 'none'. "
@@ -930,8 +937,20 @@ def main(args, _setup_logging=True):
             elif not hasattr(config_args, attr):
                 setattr(config_args, attr, default)
 
+        cli_num_replicas = optional_positive_int(
+            getattr(config_args_parser, 'num_replicas', None), name="--num_replicas")
+        config_num_replicas = optional_positive_int(
+            getattr(config_args, 'num_replicas', None), name="config num_replicas")
+        if cli_num_replicas is not None:
+            config_args.num_replicas = cli_num_replicas
+        elif config_num_replicas is not None:
+            config_args.num_replicas = config_num_replicas
+        else:
+            config_args.num_replicas = DEFAULT_NUM_REPLICAS
+
         logger.info("Unmasking order: %s", config_args.unmasking_order)
         logger.info("Token strategy: %s", config_args.token_strategy)
+        logger.info("Replicas per prompt: %d", config_args.num_replicas)
 
         # Pre-unmask feature: snapshot the architectural sequence length (current
         # diffusion_steps value from config == seq_len trained on), then if

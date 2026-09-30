@@ -121,6 +121,7 @@ Generates protein sequences from facilitated embeddings via diffusion sampling. 
 | `--device` | str | `auto` | One of `auto`, `cpu`, `cuda`, `xpu`. `auto` = the detected backend: CUDA, then XPU, else CPU. |
 | `--unmasking_order` | str | None | One of `random`, `confidence`, `confidence_no_pad`. Defaults to `random`. |
 | `--token_strategy` | str | None | One of `sample` (Gumbel-max, default) or `argmax` (deterministic). |
+| `--num_replicas` | int | None | Sequences to generate per prompt. Overrides the config's `num_replicas`; when neither sets it, 5. `None` means unset. |
 | `--pre_unmask` | flag | False | Start diffusion from a partially-unmasked state. Requires `--pre_unmask_config`. |
 | `--pre_unmask_config` | str | None | Path to JSON describing the pre-unmask strategy. |
 | `--alpha` | float | 0.0 | Weight on `z_p` when conditioning: `y = alpha * z_p + (1 - alpha) * z_c`. `0` (default) is text-only. Anything above 0 requires `z_p` in `--input_path`, which Stage 1 emits and Stage 2 preserves. Only meaningful for a model trained with a matching blend — see [Conditioning blend](#conditioning-blend-alpha). |
@@ -192,6 +193,21 @@ Runs `biom3_PenCL_inference` → `biom3_Facilitator_sample` → HDF5 compilation
 | `--cross_comparison_sample_limit` | int | 0 | Forwarded to Stage 1. `0` = skip the O(n²) cross-comparison metrics (default), `-1` = all, positive = that many. **Print-only**. |
 | `--mmd_sample_limit` | int | 1000 | Stage 2 MMD sample cap. |
 | `--dataset_key` | str | `MMD_data` | HDF5 group name for the compiled output. |
+
+#### Optional arguments — Stage 3 generation
+
+With `--generate`, the terminal step is [`biom3_ProteoScribe_sample`](#biom3_proteoscribe_sample--stage-3-sequence-generation) instead of HDF5 compilation.
+
+| Arg | Type | Default | Description |
+|---|---|---|---|
+| `--generate` | flag | False | Run Stage 3 sampling after Stage 2 instead of compiling to HDF5. |
+| `--proteoscribe_weights` | str | None | ProteoScribe weights or checkpoint (overrides `--weight_set`). Required with `--generate`. |
+| `--proteoscribe_config` | str | None | Stage 3 JSON config. Required with `--generate`. |
+| `--seed` | int | 0 | Stage 3 sampling seed. `0` or less picks one at random. |
+| `--no_fasta` | flag | False | Skip the FASTA output, which is on by default here. |
+| `--token_strategy` | str | None | Forwarded to the sampler. |
+| `--unmasking_order` | str | None | Forwarded to the sampler. |
+| `--num_replicas` | int | None | Forwarded to the sampler. Unset defers to the Stage 3 config, else 5. |
 
 ---
 

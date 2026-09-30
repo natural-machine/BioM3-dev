@@ -422,8 +422,10 @@ Two things to know:
 - **The `fasta/` directory is created beside the `-o` file.** Give each generation run its
   own output directory, or the second run overwrites the first one's FASTA files.
 
-Sampling behaviour is controlled by `--unmasking_order {random,confidence,confidence_no_pad}`
-and `--token_strategy {sample,argmax}`; `num_replicas` comes from the config.
+Sampling behaviour is controlled by `--unmasking_order {random,confidence,confidence_no_pad}`,
+`--token_strategy {sample,argmax}`, and `--num_replicas N` (sequences per prompt). Each
+overrides the same-named key in the config; `num_replicas` defaults to 5 when neither sets
+it.
 
 To do everything in one command instead, add `--generate` to `biom3_embedding_pipeline`:
 
@@ -439,7 +441,8 @@ biom3_embedding_pipeline \
 ```
 
 `--proteoscribe_config` is required with `--generate` — the weights come from
-`--weight_set`, but the config does not.
+`--weight_set`, but the config does not. `--unmasking_order`, `--token_strategy`, and
+`--num_replicas` are forwarded to the sampler.
 
 Separate steps are worth the extra command whenever you want several generation runs from
 one corpus: embedding is the expensive half, and this way you pay it once.

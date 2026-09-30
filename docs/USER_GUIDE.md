@@ -479,27 +479,179 @@ docker run --rm --gpus all -u "$(id -u):$(id -g)" \
 
 #### On Aurora, from a code checkout
 
+Clone the repository on Aurora and follow the instructions described above in the Quickstart instructions to create a virtual python environment. In order to run the commands below on real data, we assume that the demonstration GFP dataset has already been fetched with `biom3_fetch_dataset gfp_demo -o data`. On Aurora, this may require first installing oras. This can be done as follows:
+
+```bash
+# One time on an Aurora head node to install oras
+ORAS_VERSION=1.3.3
+curl -LO "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_${ORAS_VERSION}_linux_amd64.tar.gz"
+mkdir -p ~/.local/bin
+tar -xzf "oras_${ORAS_VERSION}_linux_amd64.tar.gz" -C ~/.local/bin oras
+rm "oras_${ORAS_VERSION}_linux_amd64.tar.gz"
+export PATH="$HOME/.local/bin:$PATH"    # add to ~/.bashrc or ~/.zshrc to keep it
+oras version
+```
+
+With oras installed, demo datasets can be fetched with
+
+```bash
+biom3_fetch_dataset gfp_demo -o data
+```
+
+Next, embed the dataset (Stages 1 and 2). The embedding runs on a single device, so run it once, on a compute node, before either of the finetuning cases below.
+
+```bash
+# On an Aurora compute node
+module load frameworks
+source venvs/biom3-env/bin/activate
+source environment.sh
+
+biom3_embedding_pipeline \
+    -i data/gfp_sample_dataset.csv \
+    -o outputs/ft_embeddings --prefix gfp_demo \
+    --weight_set configs/weights/run1_base.json \
+    --pencl_config configs/inference/stage1_PenCL.json \
+    --facilitator_config configs/inference/stage2_Facilitator.json
+```
+
 **Single node, 1 device per node**
+
+On a compute node, either interactively or through a PBS script, run the following from the root of the checkout. `scripts/stage3_train_singlenode.sh` takes the config, the number of devices, the device type and the run ID as positional arguments, fills in `--num_nodes 1` and `--devices_per_node`, and launches the run through `mpiexec`.
+
+```bash
+# On an Aurora compute node
+module load frameworks
+source venvs/biom3-env/bin/activate
+source environment.sh
+
+scripts/stage3_train_singlenode.sh \
+    configs/stage3_training/finetune_v1.json 1 xpu gfp_ft001 \
+    --finetune True \
+    --finetune_last_n_blocks 1 \
+    --finetune_last_n_layers -1 \
+    --finetune_output_layers True \
+    --primary_data_path outputs/ft_embeddings/gfp_demo.compiled_emb.hdf5 \
+    --pretrained_weights weights/ProteoScribe/run1_base_proteoscribe.bin \
+    --output_root outputs/gfp_ft_results \
+    --distributed_strategy ddp \
+    --epochs 3 --batch_size 16 --wandb False
+```
 
 **Multinode, 12 devices per node**
 
+Save the following as a PBS script, e.g. `gfp_ft.pbs`, set `select` to the number of nodes, and submit it from the root of the checkout with `qsub gfp_ft.pbs`. `scripts/stage3_train_multinode.sh` takes the number of nodes and the devices per node in addition to the arguments above. With the dataset split across many devices, each device holds a single validation batch, so `--limit_val_batches 1.0` is required.
+
+```bash
+#!/bin/bash -l
+#PBS -A <project>
+#PBS -N gfp_ft
+#PBS -l select=2
+#PBS -l place=scatter
+#PBS -l walltime=00:30:00
+#PBS -l filesystems=home:flare
+#PBS -q <queue>
+#PBS -j oe
+
+cd ${PBS_O_WORKDIR}
+module load frameworks
+source venvs/biom3-env/bin/activate
+source environment.sh
+
+NUM_NODES=$(wc -l < ${PBS_NODEFILE})
+
+scripts/stage3_train_multinode.sh \
+    configs/stage3_training/finetune_v1.json ${NUM_NODES} 12 xpu gfp_ft001 \
+    --finetune True \
+    --finetune_last_n_blocks 1 \
+    --finetune_last_n_layers -1 \
+    --finetune_output_layers True \
+    --primary_data_path outputs/ft_embeddings/gfp_demo.compiled_emb.hdf5 \
+    --pretrained_weights weights/ProteoScribe/run1_base_proteoscribe.bin \
+    --output_root outputs/gfp_ft_results \
+    --limit_val_batches 1.0 \
+    --distributed_strategy ddp \
+    --epochs 3 --batch_size 16 --wandb False
+```
 
 #### On Aurora, using an Apptainer image
 
 Follow the steps detailed above in the Quickstart instructions to convert an appropriate docker image into an Apptainer image, or check with your PI to see if a shared Apptainer image already exists.
 
-**Single node, 1 device per node**
-
-On a compute node, either interactively or through a PBS script, run the following command.
+With the dataset fetched as described above, embed it (Stages 1 and 2) once, on a compute node, before either of the finetuning cases below. The embedding runs as a single process, so it uses `scripts/aurora/apptainer_run.sh`, as in the Quickstart instructions.
 
 ```bash
+# On an Aurora compute node, from the root of the checkout
+module load apptainer
+export BIOM3_IMAGE="$PWD/biom3_xpu-oneapi-779859b.sif"
 
+scripts/aurora/apptainer_run.sh biom3_embedding_pipeline \
+    -i data/gfp_sample_dataset.csv \
+    -o outputs/ft_embeddings --prefix gfp_demo \
+    --weight_set configs/weights/run1_base.json \
+    --pencl_config configs/inference/stage1_PenCL.json \
+    --facilitator_config configs/inference/stage2_Facilitator.json
+```
+
+**Single node, 1 device per node**
+
+On a compute node, either interactively or through a PBS script, run the following command from the root of the checkout. Do not `module load frameworks`: the image carries its own software stack. `scripts/aurora/apptainer_mpi_run.sh` starts one container per rank under the host's `mpiexec`, so `biom3_train_stage3` is called directly.
+
+```bash
+module load apptainer
+export BIOM3_IMAGE="$PWD/biom3_xpu-oneapi-779859b.sif"
+
+NGPU_PER_NODE=1 NGPU_TOTAL=1 BIOM3_RANK_SOURCE=mpi \
+scripts/aurora/apptainer_mpi_run.sh biom3_train_stage3 \
+    --config_path configs/stage3_training/finetune_v1.json \
+    --finetune True \
+    --finetune_last_n_blocks 1 \
+    --finetune_last_n_layers -1 \
+    --finetune_output_layers True \
+    --primary_data_path outputs/ft_embeddings/gfp_demo.compiled_emb.hdf5 \
+    --pretrained_weights weights/ProteoScribe/run1_base_proteoscribe.bin \
+    --output_root outputs/gfp_ft_results \
+    --run_id gfp_ft001 \
+    --device xpu --num_nodes 1 --devices_per_node 1 \
+    --distributed_strategy ddp \
+    --epochs 3 --batch_size 16 --wandb False
 ```
 
 **Multinode, 12 devices per node**
 
-Through a PBS script, request N nodes and run the following command.
+Through a PBS script, request N nodes and run the following command. Submit it from the root of the checkout. `BIOM3_FABRIC_DIR` and `BIOM3_FI_PROVIDER` bind the host's libfabric into each container so that communication between nodes uses Aurora's Slingshot network; confirm the libfabric path with `ls -d /opt/cray/libfabric/*/lib64`.
 
 ```bash
+#!/bin/bash -l
+#PBS -A <project>
+#PBS -N gfp_ft
+#PBS -l select=2
+#PBS -l place=scatter
+#PBS -l walltime=00:30:00
+#PBS -l filesystems=home:flare
+#PBS -q <queue>
+#PBS -j oe
 
+cd ${PBS_O_WORKDIR}
+module load apptainer
+export BIOM3_IMAGE="$PWD/biom3_xpu-oneapi-779859b.sif"
+
+NUM_NODES=$(wc -l < ${PBS_NODEFILE})
+export NGPU_PER_NODE=12 NGPU_TOTAL=$((NUM_NODES * 12))
+export BIOM3_RANK_SOURCE=mpi
+export BIOM3_FABRIC_DIR=/opt/cray/libfabric/1.22.0/lib64 BIOM3_FI_PROVIDER=cxi
+
+scripts/aurora/apptainer_mpi_run.sh biom3_train_stage3 \
+    --config_path configs/stage3_training/finetune_v1.json \
+    --finetune True \
+    --finetune_last_n_blocks 1 \
+    --finetune_last_n_layers -1 \
+    --finetune_output_layers True \
+    --primary_data_path outputs/ft_embeddings/gfp_demo.compiled_emb.hdf5 \
+    --pretrained_weights weights/ProteoScribe/run1_base_proteoscribe.bin \
+    --output_root outputs/gfp_ft_results \
+    --run_id gfp_ft001 \
+    --device xpu --num_nodes ${NUM_NODES} --devices_per_node 12 \
+    --limit_val_batches 1.0 \
+    --distributed_strategy ddp \
+    --epochs 3 --batch_size 16 --wandb False
 ```

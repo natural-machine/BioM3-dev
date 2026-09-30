@@ -1,5 +1,22 @@
 # BioM3 User Guide
 
+## Contents
+
+- [About](#about)
+- [Quickstart instructions](#quickstart-instructions)
+  - [Case 1: Using BioM3 through a repo checkout](#case-1-using-biom3-through-a-repo-checkout)
+    - [Embedding and generation workflow](#embedding-and-generation-workflow)
+  - [Case 2: Using BioM3 via Docker](#case-2-using-biom3-via-docker)
+    - [Embedding and generation workflow](#embedding-and-generation-workflow-1)
+  - [Case 3: Using BioM3 on HPC environments through Apptainer](#case-3-using-biom3-on-hpc-environments-through-apptainer)
+    - [Embedding and generation workflow](#embedding-and-generation-workflow-2)
+- [Detailed Usage Instructions](#detailed-usage-instructions)
+  - [Finetuning ProteoScribe](#finetuning-proteoscribe)
+    - [On a single CUDA device, from a code checkout](#on-a-single-cuda-device-from-a-code-checkout)
+    - [On a single CUDA device, from a Docker image](#on-a-single-cuda-device-from-a-docker-image)
+    - [On Aurora, from a code checkout](#on-aurora-from-a-code-checkout)
+    - [On Aurora, using an Apptainer image](#on-aurora-using-an-apptainer-image)
+
 ## About
 
 BioM3 is a multimodal biological model that is capable of generating functional protein sequences from text prompts.
@@ -626,7 +643,7 @@ Through a PBS script, request N nodes and run the following command. Submit it f
 #PBS -N gfp_ft
 #PBS -l select=2
 #PBS -l place=scatter
-#PBS -l walltime=00:30:00
+#PBS -l walltime=01:00:00
 #PBS -l filesystems=home:flare
 #PBS -q <queue>
 #PBS -j oe

@@ -9,7 +9,7 @@ Protein Sequences](https://www.biorxiv.org/content/10.1101/2024.11.11.622734v1).
 
 This guide covers basic setup and usage of BioM3.
 
-## Installation and Setup
+## Quickstart instructions
 
 Setup instructions vary depending on the particular use case and computing environment. For basic workflows, we recommend using the published BioM3 container images via Docker. Alternatively, one can clone the repository, create a working conda environment, and run BioM3 commands with the installed package. Finally, for use of BioM3 on HPC environments such as Midway (UChicago) and Aurora (ALCF) we provide additional instructions for the use of Apptainer in place of Docker.
 
@@ -36,6 +36,18 @@ Next, fetch the current set of model weights with the following command.
 
 ```bash
 biom3_fetch_weights run1_base -o weights
+```
+
+The result is the following expected layout:
+
+```
+weights/
+├── Facilitator/run1_base_facilitator.bin
+├── LLMs/
+│   ├── BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext/
+│   └── esm2_t33_650M_UR50D.pt
+├── PenCL/run1_base_pencl.bin
+└── ProteoScribe/run1_base_proteoscribe.bin
 ```
 
 This command may take some time, as it downloads multiple gigabytes of model weights.
@@ -67,7 +79,7 @@ biom3_embedding_pipeline \
     --facilitator_config configs/inference/stage2_Facilitator.json
 ```
 
-The embedding pipeline first transforms the input text captions into a vector $z_t$ and the protein sequence into a vector $z_p$ (Stage 1). Then, the Facilitator module further refines the text representation $z_$ into a "refined" text embedding $z_c$ (Stage 2). The result of the command above is a directory `outputs/demo` containing the following:
+The embedding pipeline first transforms the input text captions into a vector $z_t$ and the protein sequence into a vector $z_p$ (Stage 1). Then, the Facilitator module further refines the text representation $z_t$ into a "refined" text embedding $z_c$ (Stage 2). The result of the command above is a directory `outputs/demo` containing the following:
 
 ```text
 outputs/demo/
@@ -78,19 +90,16 @@ outputs/demo/
 └── example.run.log               # the run's console output
 ```
 
-The filenames come from `--prefix`, and everything lands directly in the `--output_dir`
-with no subdirectories. Note that the Stage 2 file is a superset of the Stage 1 file: the
-Facilitator adds `z_c` to the dictionary it was given rather than writing a new one, so
-`example.Facilitator_emb.pt` alone is enough for the generation step that follows.
+The filenames come from `--prefix`, and everything populates under the `--output_dir`. Note that the Stage 2 file is a superset of the Stage 1 file; the Facilitator adds `z_c` to the dictionary it was given.
 
-After running the embedding half of BioM3, one can then use the refined text embeddings, $z_c$, to condition the Stage 3 module ProteoScribe and generate novel sequences. The command below takes as input the refined embeddings, and generates a specified number of sequences (default 5) for each individual embedding (i.e. text caption). Here again, we specify the weight file to use as well as a configuration file.
+After running the embedding half of BioM3, one can then use the refined text embeddings, $z_c$, to condition the Stage 3 module ProteoScribe and generate novel sequences. The command below takes as input the refined embeddings, and generates a specified number of sequences (`--num_replicas` argument; default 5) for each individual embedding (i.e. text caption). Here again, we specify the weight file to use as well as a configuration file.
 
 ```bash
 biom3_ProteoScribe_sample \
     -i outputs/demo/example.Facilitator_emb.pt \
     -c configs/inference/stage3_ProteoScribe_sample.json \
     -m weights/ProteoScribe/run1_base_proteoscribe.bin \
-    -o outputs/demo/generation/generated.pt --fasta
+    -o outputs/demo/generation/generated.pt --fasta --num_replicas 5
 ```
 
 Results populate under `outputs/demo/generation`. The results file `generated.pt` stores the generated sequences by prompt. Results can be loaded and viewed in an interactive python session as follows:
@@ -192,7 +201,7 @@ docker run --rm --gpus all -u "$(id -u):$(id -g)" \
         -i outputs/demo/example.Facilitator_emb.pt \
         -c configs/inference/stage3_ProteoScribe_sample.json \
         -m weights/ProteoScribe/run1_base_proteoscribe.bin \
-        -o outputs/demo/generation/generated.pt --fasta
+        -o outputs/demo/generation/generated.pt --fasta --num_replicas 5
 ```
 
 ### Case 3: Using BioM3 on HPC environments through Apptainer
@@ -288,367 +297,157 @@ scripts/aurora/apptainer_run.sh biom3_ProteoScribe_sample \
     -i outputs/demo/example.Facilitator_emb.pt \
     -c configs/inference/stage3_ProteoScribe_sample.json \
     -m weights/ProteoScribe/run1_base_proteoscribe.bin \
-    -o outputs/demo/generation/generated.pt --fasta
+    -o outputs/demo/generation/generated.pt --fasta  --num_replicas 5
 ```
 
+## Detailed Usage Instructions
 
+### Finetuning ProteoScribe
 
+The Stage 3 module, ProteoScribe, is an order-agnostic autoregressive diffusion model (ARDM) that can be conditioned on a text prompt and used to generate protein sequences. The base model weights of ProteoScribe (included in the `run1_base` bundle) were tuned through a training process in which the ProteoScribe model saw sequence-text pairs across a broad set of protein families. In order to generate high-quality sequences specific to a particular protein family, we find that it is necessary to finetune ProteoScribe on a per-family basis.
 
+The finetuning process begins with the curation and construction of a suitable finetuning dataset. One should first assemble a collection of protein sequence-caption pairs, for example from the SwissProt or Pfam databases. Create a csv file with the header `primary_Accession,protein_sequence,[final]text_caption`. The accession field is arbitrary, but should contain string values. The sequence and text columns should contain the protein sequences and text captions, respectively, wrapped in double quotes in case of commas.
 
-### Fetching weights
-
-BioM3 needs pretrained weights: ESM-2 and BioBERT for Stage 1, plus a checkpoint for each
-of the three stages. The standard published set is `run1_base`, 6.4 GB. Fetch it:
+For the sake of example, assume that one has a csv file stored in a project directory under `data/familyA.csv`. Start by running the embedding pipeline (Stages 1 and 2) with your family csv as input, as documented above, following the specific instructions for your particular use case. In the commands below, we assume that the appropriate `biom3_embedding_pipeline` command has been run, with outputs directed to `outputs/ft_embeddings/`, for example via
 
 ```bash
-biom3_fetch_weights run1_base -o weights
+biom3_embedding_pipeline -i data/familyA.csv -o outputs/ft_embeddings --prefix familyA ...
 ```
 
-The command is in the image as well as the package, so you can run it before you have a
-checkout. It compares each file against the registry's content digest and skips what is
-already correct, so re-running resumes rather than restarts. Pass `--dry_run` to see what
-it would download, `--force` to replace a file whose bytes differ.
+This should populate the `outputs/ft_embeddings/` directory with a number of .pt files, as well as a compiled .hdf5 file, e.g. `familyA.compiled_emb.hdf5`. This file will serve as the direct input for finetuning. The generic command to run the finetuning entrypoint is shown below, with the essential arguments described. Variations of this command may be used on different machines, detailed below.
 
-The result is the layout every config expects:
-
-```
-weights/
-├── Facilitator/run1_base_facilitator.bin
-├── LLMs/
-│   ├── BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext/
-│   └── esm2_t33_650M_UR50D.pt
-├── PenCL/run1_base_pencl.bin
-└── ProteoScribe/run1_base_proteoscribe.bin
-```
-
-Named weight sets live in [`configs/weights/`](../configs/weights/); `--weight_set
-configs/weights/run1_base.json` points the entry points at all three stage checkpoints at
-once, instead of naming each with `--pencl_weights`, `--facilitator_weights` and
-`--proteoscribe_weights`.
-
-On a shared cluster the weights are usually already on disk —
-[setup/setup_shared_weights.md](./setup/setup_shared_weights.md) has the per-machine paths,
-and [`scripts/link_weights.sh`](../scripts/link_weights.sh) symlinks them into a checkout.
-
-## Basic Usage
-
-Everything in this section is a plain `biom3_*` command. It is the same command whether you
-run it in a conda environment, under `docker run`, or under `apptainer exec` — only the
-prefix changes. The two sections after this one cover those prefixes.
-
-The commands assume the conventional directory layout, which every runtime uses:
-
-| Directory | Holds |
-| --------- | ----- |
-| `weights/` | model weights (read-only) |
-| `data/` | your inputs (read-only) |
-| `outputs/` | everything produced (writable) |
-| `configs/` | JSON configs — shipped with the code, rarely edited directly |
-
-### Embedding sequences and captions
-
-Stage 1 and Stage 2 in one command. Input is a CSV with one row per prompt, carrying these
-three columns; any others are ignored:
-
-| Column | What it is |
-| ------ | ---------- |
-| `primary_Accession` | An identifier for the row |
-| `protein_sequence` | A protein sequence, single-letter amino acid codes |
-| `[final]text_caption` | The natural-language description |
-
-The square brackets are part of the column name. Captions are truncated at 512 word-pieces,
-and the models were trained on text written as `KEY: value` sections (`PROTEIN NAME:`,
-`FUNCTION:`, `SUBUNIT:`, `SUBCELLULAR LOCATION:`), so prompts in that form sit closest to
-the training distribution.
-
-`protein_sequence` is required even when you only care about generating from text: Stage 1
-encodes it to `z_p` and reports how far the caption landed from it, which is your main
-signal that the prompt worked. It does not constrain what gets generated.
+The finetuning entrypoint is run via the `biom3_train_stage3` command, with the argument `--finetune True`.
 
 ```bash
-biom3_embedding_pipeline \
-    -i data/prompts.csv \
-    -o outputs/embeds --prefix run1 \
-    --weight_set configs/weights/run1_base.json \
-    --pencl_config configs/inference/stage1_PenCL.json \
-    --facilitator_config configs/inference/stage2_Facilitator.json
+biom3_train_stage3 \
+    --config_path configs/stage3_training/finetune_v1.json \
+    --finetune True \
+    --finetune_last_n_blocks 1 \
+    --finetune_last_n_layers -1 \
+    --finetune_output_layers True \
+    --primary_data_path outputs/ft_embeddings/familyA.compiled_emb.hdf5 \
+    --pretrained_weights weights/ProteoScribe/run1_base_proteoscribe.bin \
+    --output_root outputs/familyA_ft_results \
+    --run_id familyA_ft001 \
+    --device cuda --num_nodes 1 --devices_per_node 1 \
+    --distributed_strategy ddp \
+    --epochs 3 --batch_size 16 --wandb False
 ```
 
-This writes, under `outputs/embeds/`:
+**Description of arguments:**
 
-| File | Contents |
-| ---- | -------- |
-| `run1.PenCL_emb.pt` | Stage 1 output: `z_t` and `z_p` |
-| `run1.Facilitator_emb.pt` | Stage 2 output: `z_c`, the input to generation |
-| `run1.compiled_emb.hdf5` | the same embeddings packaged for Stage 3 training |
-| `run1.run.log`, `run1.build_manifest.json` | the run's log and its exact settings |
+* `--config_path`: The training configuration file. This file may contain default values for the arguments below, which are overwritten by arguments passed through the command line.
+* `--finetune`: Must be `True` to run the finetuning path.
+* `--finetune_last_n_blocks`: How many of the final transformer blocks to unfreeze. `-1` unfreezes all blocks, `0` none.
+* `--finetune_last_n_layers`: How many layers within each unfrozen block to train. `-1` unfreezes all layers of those blocks, `0` none.
+* `--finetune_output_layers`: Whether to also unfreeze the final norm and output layer. Together these three arguments set how much of the model adapts; the run log reports the resulting trainable and frozen parameter counts.
+* `--primary_data_path`: Path to the hdf5 file containing embedded data from Stage 2.
+* `--pretrained_weights`: Initial ProteoScribe weights to finetune from.
+* `--output_root`: The output directory into which all finetuning results will populate.
+* `--run_id`: A short name to identify the run.
+* `--device`: `cuda`, `xpu`, `cpu`, or `auto`, depending on available hardware.
+* `--num_nodes`: The number of nodes to use.
+* `--devices_per_node`: The number of individual devices per node (e.g. 12 on Aurora nodes, if utilizing all tiles in a flat hierarchy).
+* `--distributed_strategy`: `ddp` or `deepspeed_zero2`. `ddp` writes a single plain .ckpt and is the simpler choice on one device or where nodes do not share a filesystem. `deepspeed_zero2` (default) shards optimizer state and offloads to CPU, which is used when the model or optimizer state is large; its checkpoints are directories that get converted to state_dict.best.pth at the end.
+* `--epochs`: The number of epochs to finetune for.
+* `--batch_size`: Batch size.
+* `--wandb`: `True` or `False`. Set to True to track the run in weights&biases, provided you have an API key. Otherwise set to False. When enabled, a `wandb/` directory appears under `runs/<run_id>/logs/` alongside `lightning_logs/`.
 
-`run1.run.log` reports the mean squared error between `z_c` and `z_p`. A small value means the
-caption placed the model near the protein family you described.
+A finetuning run should result in a populated output directory with the structure shown below. Specifying the `output_root` as `outputs/familyA_ft_results` creates the directory (if it doesn't already exist) as well as subdirectories for checkpoints and individual run results. Both subdirectories are keyed on `--run_id`, so a single `output_root` can hold many runs without them colliding, and the bulky checkpoints stay separate from the small logs and artifacts. Continuing a run to further epochs is done with `--resume_from_checkpoint`, pointing at a specific `.ckpt` under `checkpoints/<run_id>/`.
 
-Useful options: `--device {auto,cpu,cuda,xpu}` (default `auto`), `--batch_size` (Stage 1,
-default 256), `--text_padding max_padding|dynamic` — keep `max_padding`, since `dynamic`
-makes `z_t` depend on how rows happened to be batched.
+```txt
+outputs/familyA_ft_results/
+├── checkpoints/familyA_ft001/
+│   └── epoch=2-step=48.ckpt
+└── runs/familyA_ft001/
+    ├── logs/
+    │   └── lightning_logs/
+    └── artifacts/
+        ├── state_dict.best.pth
+        ├── args.json
+        ├── build_manifest.json
+        ├── checkpoint_summary.json
+        ├── dataset_splits.pt
+        ├── metrics_history.pt
+        ├── run_summary.json
+        └── run.log
+```
 
-To run all three stages at once, add `--generate` and its config; see the next section.
+**Description of outputs:**
 
-### Generating sequences
+* `checkpoints/<run_id>/`: Checkpoints saved during the given run.
+* `runs/<run_id>/logs`: Lightning logs generated during the given run.
+* `runs/<run_id>/artifacts`: Artifacts produced over the course of finetuning, and on completion. These artifacts include
+  * `state_dict.best.pth`: Single file containing the optimal model weights based on validation loss.
+  * `args.json`: A full list of passed arguments, either through the command line or the config file.
+  * `build_manifest.json`: Provenance tracking manifest.
+  * `checkpoint_summary.json`: Descriptive summary of checkpoints.
+  * `dataset_splits.pt`: Provenance tracker; Datapoint indices corresponding to the training, validation and test splits.
+  * `metrics_history.pt`: Pytorch data file containing the history of tracked metrics over the course of the run.
+  * `run_summary.json`: How the run ended, including the exit reason and any exception.
+  * `run.log`: Full run log.
 
-Stage 3, from the `z_c` that embedding produced:
+The sections below detail the finetuning command to be used in each of the following cases:
+
+* Finetuning on a machine with a single CUDA GPU, from a repo checkout
+* Finetuning on a machine with a single CUDA GPU, using docker
+* Finetuning on a machine with multiple CUDA GPUs
+* Finetuning on Aurora using a single node and device
+* Finetuning on Aurora using multiple nodes and 12 devices per node
+
+#### On a single CUDA device, from a code checkout
+
+Running on a machine with a cuda device and a cloned copy of the BioM3-dev repo is strightforward. Ensure that the config file, weights, and input data are present. One important prerequisite is to source the `environment.sh` file prior to running the command.
 
 ```bash
-biom3_ProteoScribe_sample \
-    -i outputs/embeds/run1.Facilitator_emb.pt \
-    -c configs/inference/stage3_ProteoScribe_sample.json \
-    -m weights/ProteoScribe/run1_base_proteoscribe.bin \
-    -o outputs/gen_seed42/generated.pt --fasta --seed 42
+source environment.sh
+biom3_train_stage3 \
+    --config_path configs/stage3_training/finetune_v1.json \
+    --finetune True \
+    --finetune_last_n_blocks 1 \
+    --finetune_last_n_layers -1 \
+    --finetune_output_layers True \
+    --primary_data_path outputs/ft_embeddings/familyA.compiled_emb.hdf5 \
+    --pretrained_weights weights/ProteoScribe/run1_base_proteoscribe.bin \
+    --output_root outputs/familyA_ft_results \
+    --run_id familyA_ft001 \
+    --device cuda --num_nodes 1 --devices_per_node 1 \
+    --distributed_strategy ddp \
+    --epochs 3 --batch_size 16 --wandb False
 ```
 
-Results land in `outputs/gen_seed42/`: `generated.pt` with the tensors, and a `fasta/`
-directory holding `prompt_0.fasta`, `prompt_1.fasta` and so on — one file per input row,
-numbered by row order rather than by your accessions. Each holds five replicas by default:
+#### On a single CUDA device, from a Docker image
 
-```
->prompt_0_replica_0 seed=42
-MSKSEVIEFPGTIKEAMPNAMFIVSLENEHKVIAKASGKIRMVPIRILVKDEVTVGLSPYDLKRRLIRRRASI
-```
+Follow the steps detailed above in the Quickstart instructions to ensure Docker is installed on your machine and that you have pulled down a BioM3 image with a `cuda` tag.
 
-Two things to know:
-
-- **Seeds.** `--seed` defaults to 0, and a seed of 0 or less means "pick one at random", so
-  runs are *not* reproducible unless you pass a positive number. The seed actually used is
-  recorded in every FASTA header and in `run.log`, so a run you liked can be reproduced
-  after the fact.
-- **The `fasta/` directory is created beside the `-o` file.** Give each generation run its
-  own output directory, or the second run overwrites the first one's FASTA files.
-
-Sampling behaviour is controlled by `--unmasking_order {random,confidence,confidence_no_pad}`,
-`--token_strategy {sample,argmax}`, and `--num_replicas N` (sequences per prompt). Each
-overrides the same-named key in the config; `num_replicas` defaults to 5 when neither sets
-it.
-
-To do everything in one command instead, add `--generate` to `biom3_embedding_pipeline`:
+Ensure that the config, weights, and data directories are created and that you have the correct configuration files and weights. Then, run the command as above, but with the appropriate docker additions:
 
 ```bash
-biom3_embedding_pipeline \
-    -i data/prompts.csv \
-    -o outputs/demo --prefix demo \
-    --weight_set configs/weights/run1_base.json \
-    --pencl_config configs/inference/stage1_PenCL.json \
-    --facilitator_config configs/inference/stage2_Facilitator.json \
-    --generate \
-    --proteoscribe_config configs/inference/stage3_ProteoScribe_sample.json
-```
+export BIOM3_IMAGE=ghcr.io/ranganathanlab/biom3:cuda-779859b
+mkdir -p outputs
 
-`--proteoscribe_config` is required with `--generate` — the weights come from
-`--weight_set`, but the config does not. `--unmasking_order`, `--token_strategy`, and
-`--num_replicas` are forwarded to the sampler.
-
-Separate steps are worth the extra command whenever you want several generation runs from
-one corpus: embedding is the expensive half, and this way you pay it once.
-
-### Finetuning
-
-Adapting ProteoScribe to your own protein family. There are two entry points, and which you
-want depends on the form your data is in:
-
-| Entry point | Input | `z_c` is |
-| ----------- | ----- | -------- |
-| `biom3_train_stage3 --finetune True` | precomputed HDF5 | fixed, computed ahead of time |
-| `biom3_finetune_stage3` | JSONL records | computed on-device each epoch from a composed caption |
-
-The second is the generalized path and usually the one you want. It holds the caption
-*fields* rather than a finished caption, and composes a fresh caption every epoch with
-per-key dropout and shuffling, so the model sees the same protein described many ways. One
-JSONL record per line:
-
-```json
-{
-  "accession": "...",
-  "sequence": "RALYDYQADDPSYLPFRQGDIIEVLTRLETGWWDGLLNDQRGWFPS",
-  "sequence_length": 46,
-  "source": "pfam",
-  "fields": {
-    "protein_name": "Ras GEF",
-    "family_name": "SH3 domain",
-    "family_description": "SH3 (Src homology 3) domains are often indicative of ...",
-    "gene_ontology": "['plasma membrane', 'guanyl-nucleotide exchange factor activity']",
-    "lineage": "['Eukaryota', 'Fungi', 'Dikarya', 'Basidiomycota']"
-  }
-}
-```
-
-Which fields exist is up to you; the config's `record_schema` decides how they become a
-caption — which keys to keep, how often to drop each one, whether to shuffle. The shipped
-[`configs/stage3_training/finetune_generalized_v1.json`](../configs/stage3_training/finetune_generalized_v1.json)
-is a worked example, and there is a small fixture at
-`tests/_data/stage3_inputs/sample_finetune_records_24.jsonl`.
-
-```bash
-biom3_finetune_stage3 \
-    --config_path configs/stage3_training/finetune_generalized_v1.json \
-    --finetune_data_path data/my_records.jsonl \
-    --device auto --num_nodes 1 --devices_per_node 1 \
-    --run_id ft001 --output_root outputs/ft001 \
-    --epochs 10 --wandb False
-```
-
-Arguments worth knowing:
-
-- `--devices_per_node` is always explicit. How many ranks to run per node is a layout
-  choice, and a request for more devices than are visible stops the run rather than
-  silently using fewer.
-- `--pretrained_weights` names the checkpoint to start from; the config already points at
-  `run1_base`.
-- `--finetune_last_n_blocks` / `--finetune_last_n_layers` / `--finetune_output_layers`
-  control how much of the model unfreezes.
-- `--wandb False` matters: if `WANDB_API_KEY` is set in your environment it is forwarded
-  into the container and every smoke run is uploaded.
-- `--distributed_strategy {deepspeed_zero2,ddp}`. Use `ddp` wherever nodes do not share a
-  filesystem, so one rank writes one checkpoint.
-
-Outputs are organised under `--output_root`:
-
-```
-{output_root}/
-├── checkpoints/{run_id}/     ← .ckpt files and derived weights
-└── runs/{run_id}/
-    ├── logs/                 ← lightning_logs/, wandb/
-    └── artifacts/            ← state_dict.best.pth, args.json, build_manifest.json, run.log
-```
-
-The HDF5 path is the same trainer with `--finetune True` and a `--primary_data_path`
-pointing at a compiled HDF5, which you produce with `biom3_embedding_pipeline` (without
-`--generate`) or `biom3_compile_hdf5`.
-
-Pretraining from scratch uses the same wrappers with a `pretrain_scratch_*` config; see
-[docker/README.md](../docker/README.md#training-stages-1-2-3) and the per-machine job
-templates under [`jobs/`](../jobs/).
-
-## Using Docker
-
-Every command in [Basic Usage](#basic-usage) runs unchanged inside the container. You
-prefix it with a `docker run` that attaches your directories and, on a GPU host, the GPU.
-
-With a source checkout, [`docker/run.sh`](../docker/run.sh) assembles that for you:
-
-```bash
-docker/run.sh biom3_embedding_pipeline -i data/prompts.csv -o outputs/embeds --prefix run1 ...
-```
-
-It mounts the conventional layout, runs the container as you so output files are yours, and
-forwards `WANDB_API_KEY`, `NGPU` and the weights-bundle variables.
-
-| Host (default) | Container | Mode |
-| --- | --- | --- |
-| `./weights` | `/app/weights` | ro |
-| `./data` | `/app/data` | ro |
-| `./outputs` | `/app/outputs` | rw |
-| `./outputs/tests_tmp` | `/app/tests/_tmp` | rw |
-| `./configs` | `/app/configs` | ro (optional; overrides the baked-in configs) |
-
-Override the host side with `BIOM3_WEIGHTS_DIR`, `BIOM3_DATA_DIR`, `BIOM3_OUTPUTS_DIR`,
-`BIOM3_CONFIGS_DIR`. Set `BIOM3_IMAGE` to choose the image.
-
-Without a checkout, write the same thing out:
-
-```bash
 docker run --rm --gpus all -u "$(id -u):$(id -g)" \
     -v "$PWD/weights:/app/weights:ro" \
-    -v "$PWD/data:/app/data:ro" \
     -v "$PWD/outputs:/app/outputs" \
-    ghcr.io/natural-machine/biom3:cuda-779859b \
-    biom3_embedding_pipeline -i data/prompts.csv -o outputs/embeds --prefix run1 ...
+    $BIOM3_IMAGE \
+    biom3_train_stage3 \
+        --config_path configs/stage3_training/finetune_v1.json \
+        --finetune True \
+        --finetune_last_n_blocks 1 \
+        --finetune_last_n_layers -1 \
+        --finetune_output_layers True \
+        --primary_data_path outputs/ft_embeddings/familyA.compiled_emb.hdf5 \
+        --pretrained_weights weights/ProteoScribe/run1_base_proteoscribe.bin \
+        --output_root outputs/familyA_ft_results \
+        --run_id familyA_ft001 \
+        --device cuda --num_nodes 1 --devices_per_node 1 \
+        --distributed_strategy ddp \
+        --epochs 3 --batch_size 16 --wandb False
 ```
 
-Notes:
+#### On Aurora
 
-- `--gpus all` needs the NVIDIA Container Toolkit on the host. Omit it with the `cpu` image.
-- `-u "$(id -u):$(id -g)"` is a Linux measure so output files are owned by you rather than
-  root. On macOS and Windows, Docker Desktop handles ownership and you should omit it.
-- **Symlinked weights or data.** A symlink inside a mounted directory resolves *inside* the
-  container, so if `weights/` holds absolute links elsewhere on the host, those locations
-  must be mounted too, at the same path. List them in `BIOM3_BIND_EXTRA` (comma-separated).
-  Check with `find weights data -type l -exec readlink {} + | cut -d/ -f1-4 | sort | uniq -c`.
-  Without this the links dangle and the failure surfaces far from its cause — a local
-  Hugging Face model directory is reported as a malformed Hub repo id rather than a missing
-  file.
-- **Multi-GPU** on one host uses `torchrun`, not MPI. The training wrappers see
-  `BIOM3_MACHINE=container` and dispatch to
-  [`scripts/launchers/container_singlenode.sh`](../scripts/launchers/container_singlenode.sh),
-  which spawns one rank per device. Set `NGPU` to match the wrapper's device argument.
-- **Weights without a mount.** `BIOM3_WEIGHTS_BUNDLE=run1_base` makes the entrypoint pull
-  the bundle into the image's own `/app/weights` at start-up, which requires running as root
-  (`BIOM3_AS_ROOT=1`). On a host you reuse, fetch once to a host directory and mount it
-  instead.
+**Single node, 1 device per node**
 
-The full reference — build options, publishing, the streamlit app, multi-node on SkyPilot —
-is [docker/README.md](../docker/README.md).
+**Multinode, 12 devices per node**
 
-## Using Apptainer
-
-Same idea, different prefix, plus cluster-specific environment the wrappers set for you.
-Run from a compute node; a login node cannot create the user namespace.
-
-**Polaris**, single node, 4 A100s:
-
-```bash
-BIOM3_IMAGE=/path/to/biom3_cuda.sif \
-scripts/polaris/apptainer_run.sh scripts/stage3_train_singlenode.sh \
-    configs/stage3_training/pretrain_scratch_v1.json 4 auto run001 --epochs 1
-```
-
-The wrapper passes `--nv` for the GPUs, binds `/grand`, and unsets `BIOM3_MACHINE` before
-sourcing `environment.sh` so the image's baked `container` value does not mask the
-`polaris` profile.
-
-**Aurora**, single node, 12 tiles, one container with `torchrun` inside it:
-
-```bash
-export BIOM3_IMAGE=/flare/NLDesignProtein/$USER/biom3_xpu.sif
-scripts/aurora/apptainer_run.sh scripts/stage3_train_singlenode.sh \
-    configs/stage3_training/pretrain_scratch_v1.json 12 auto run001 --epochs 1
-```
-
-The wrapper binds `/flare` and `/lus`, sets `ZE_FLAT_DEVICE_HIERARCHY=FLAT` so each tile is
-its own device, and applies the oneCCL settings the container needs but bare metal gets for
-free. Bind `/lus` as well as `/flare`: the repo's `weights/` and `data/` entries are
-absolute symlinks into `/lus/flare/projects/...`.
-
-**Aurora**, multi-node, one container per rank under the host `mpiexec`:
-
-```bash
-NGPU_PER_NODE=12 NGPU_TOTAL=24 BIOM3_RANK_SOURCE=mpi \
-BIOM3_FABRIC_DIR=/opt/cray/libfabric/1.22.0/lib64 BIOM3_FI_PROVIDER=cxi \
-BIOM3_IMAGE=/flare/NLDesignProtein/$USER/biom3_xpu-oneapi.sif \
-scripts/aurora/apptainer_mpi_run.sh \
-    biom3_train_stage3 --config_path configs/stage3_training/pretrain_scratch_v1.json \
-    --device auto --devices_per_node 12 --num_nodes 2 --run_id mn001 --epochs 2
-```
-
-Three things this path requires:
-
-- **`BIOM3_RANK_SOURCE=mpi`.** Without it the wrapper falls back to translating the PALS
-  rank variables, and oneCCL setup dies with a SIGSEGV.
-- **`BIOM3_FABRIC_DIR` and `BIOM3_FI_PROVIDER=cxi`.** Aurora's CXI provider lives in HPE's
-  Cray libfabric, not in the image. Without them the run falls back to `tcp` and ends up
-  slower than a single node.
-- **Entry points are called directly**, not through the `scripts/stage*_{single,multi}node.sh`
-  wrappers. `mpiexec` has already spawned one process per rank; a wrapper would spawn them
-  a second time.
-
-Run this from the shell `qsub -I` gives you — the wrapper reads `$PBS_NODEFILE`, which PBS
-sets only there — and do not `module load frameworks`, which exports host values the
-wrapper has to override.
-
-There is no progress bar under `mpiexec`: each rank's stdout is a pipe, and the bar only
-appears on a terminal. Follow the run in TensorBoard, W&B, or the per-epoch validation
-lines.
-
-Because the `.sif` is read-only and some code writes into the image tree, both wrappers pass
-`--writable-tmpfs` and mount `<outputs>/tests_tmp` at `/app/tests/_tmp`. Invoking
-`apptainer exec` by hand means adding both yourself.
-
-Environment variables, failure modes and measured throughput are in
-[setup/setup_aurora_container.md](./setup/setup_aurora_container.md) and
-[setup/setup_polaris_container.md](./setup/setup_polaris_container.md).

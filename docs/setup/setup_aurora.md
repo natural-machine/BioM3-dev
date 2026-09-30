@@ -33,7 +33,7 @@ Note that presently an error message may be raised due to package conflicts, but
 Verify the h5py install before going further, each line in a fresh interpreter:
 
 ```bash
-python -c "import h5py; print(h5py.__file__)"           # must be under venvs/biom3-env/
+python -c "import h5py; print(h5py.__file__)"           # must be under .../venvs/biom3-env/
 python -c "import hashlib, pandas; import h5py; print('ok')"
 ```
 

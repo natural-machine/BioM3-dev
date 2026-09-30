@@ -17,6 +17,27 @@ There are two primary branches, `main` and `dev`. These are both protected, and 
 
 ### Creating and publishing BioM3 Docker images
 
+First, clone the `BioM3-dev` repository. A Docker image can be created from the source code and published to the appropriate GitHub organization. The commands are as follows, using build scripts shipped with the BioM3 repo. The destination registry repo is passed explicitly with `--repo`.
+
+```bash
+cd /path/to/BioM3-dev
+REPO=ghcr.io/<org>/biom3  # e.g. ghcr.io/ranganathanlab/biom3
+
+# multi-arch
+docker/build.sh --variant cuda --release --repo "$REPO"
+docker/build.sh --variant cpu  --release --repo "$REPO"
+
+# amd64-only (no arm64 Intel GPU wheels)
+docker/build.sh --variant xpu         --release --repo "$REPO"
+docker/build.sh --variant xpu-oneapi  --release --repo "$REPO"
+```
+
+To publish an image that is already built locally (single architecture), push it under the same tags without rebuilding:
+
+```bash
+docker/push.sh --variant xpu --repo "$REPO"
+```
+
 ### Creating Apptainer images for HPC environments
 
 ## Working on ALCF machines

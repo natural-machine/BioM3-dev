@@ -195,7 +195,9 @@ export GHCR_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
 echo "$GHCR_TOKEN" | docker login ghcr.io -u addison-nm --password-stdin
 
 # 3. Build and publish both architectures (see the next section for host requirements).
-docker/build.sh --variant cuda --release
+#    The repo is always explicit; it must match IMAGE in run.mithril.yaml.
+REPO=ghcr.io/<org>/biom3
+docker/build.sh --variant cuda --release --repo "$REPO"
 
 # 4. Make the package PUBLIC — the first push creates it PRIVATE by default.
 #    Web: https://github.com/orgs/natural-machine/packages → biom3
@@ -203,7 +205,7 @@ docker/build.sh --variant cuda --release
 
 # 5. Verify an ANONYMOUS pull — this is exactly what a Mithril instance does.
 docker logout ghcr.io
-docker pull ghcr.io/natural-machine/biom3:cuda-dev
+docker pull "$REPO:cuda-dev"
 ```
 
 ### On every image change — one cross-build from any host
@@ -215,14 +217,15 @@ Both architectures are built in a single pass, from **one** host of either
 architecture, and pushed as a manifest list:
 
 ```bash
+REPO=ghcr.io/<org>/biom3
 echo "$GHCR_TOKEN" | docker login ghcr.io -u addison-nm --password-stdin
-docker/build.sh --variant cuda --release
-docker buildx imagetools inspect ghcr.io/natural-machine/biom3:cuda-dev
+docker/build.sh --variant cuda --release --repo "$REPO"
+docker buildx imagetools inspect "$REPO:cuda-dev"
 ```
 
 `--release` defaults `--platform` to every architecture the variant supports
 (`linux/amd64,linux/arm64` for cuda; amd64 only for xpu), derives the tags from
-`--repo` and the git sha, and implies `--push`:
+`--repo` (required, no default) and the git sha, and implies `--push`:
 
 - `cuda-<sha>` — immutable, per commit
 - `cuda-dev` — moving; what `run.mithril.yaml` pulls
@@ -247,9 +250,10 @@ prohibitively so for this image, and buildx caches layers across runs.
 #### Single-arch publishing (`push.sh`)
 
 [`docker/push.sh`](../docker/push.sh) pushes a locally-built image under the same two
-tags, but a local image holds only one architecture. It exists for the **amd64-only
-xpu variant**. For cuda it refuses to overwrite a multi-arch `cuda-dev` — doing so
-would silently strip an architecture off the tag cloud jobs pull. `--force-dev`
+tags (`docker/push.sh --variant xpu --repo "$REPO"`), but a local image holds only one
+architecture. It exists for the **amd64-only xpu variant**. For cuda it refuses to
+overwrite a multi-arch `cuda-dev` — doing so would silently strip an architecture off
+the tag cloud jobs pull. `--force-dev`
 overrides that if you mean it.
 
 ## Publishing the weights bundle (GHCR)

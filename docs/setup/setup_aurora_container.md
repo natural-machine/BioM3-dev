@@ -47,13 +47,14 @@ See [PyTorch on Aurora](https://docs.alcf.anl.gov/aurora/data-science/frameworks
 ### 1. Build + push the XPU image (off Aurora)
 
 ```bash
-docker/build.sh --variant xpu --release       # -> ghcr.io/natural-machine/biom3:xpu-dev (+ :xpu-<sha>)
+REPO=ghcr.io/<org>/biom3
+docker/build.sh --variant xpu --release --repo "$REPO"   # -> $REPO:xpu-dev (+ :xpu-<sha>)
 ```
 
-`--release` builds and pushes in one pass. Unlike the cuda variant it stays
-**amd64-only**, so there is no manifest list to assemble. To publish an image you have
-already built locally, `docker/push.sh --variant xpu` pushes the same two tags without
-rebuilding.
+`--release` builds and pushes in one pass; `--repo` is required. Unlike the cuda
+variant it stays **amd64-only**, so there is no manifest list to assemble. To publish
+an image you have already built locally, `docker/push.sh --variant xpu --repo "$REPO"`
+pushes the same two tags without rebuilding.
 
 ### 2. Convert to a .sif (Aurora login node)
 

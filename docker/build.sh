@@ -7,21 +7,23 @@
 # from any directory.
 #
 # PUBLISHING: --release builds every architecture in one pass and pushes the
-# conventional GHCR tags. This is how the public image is published:
-#   docker/build.sh --variant cuda --release
-#     -> ghcr.io/natural-machine/biom3:cuda-dev      (moving; what cloud/*.yaml track)
-#     -> ghcr.io/natural-machine/biom3:cuda-<sha>    (immutable, per commit)
+# conventional tags to the registry repo given by --repo. This is how the public
+# image is published:
+#   docker/build.sh --variant cuda --release --repo ghcr.io/<org>/biom3
+#     -> ghcr.io/<org>/biom3:cuda-dev      (moving; what cloud/*.yaml track)
+#     -> ghcr.io/<org>/biom3:cuda-<sha>    (immutable, per commit)
 # Both tags are one multi-arch manifest list, so amd64 and arm64 hosts pull the
 # same tag. Cross-building the non-native architecture needs QEMU/binfmt in the
 # buildx builder (see docker/README.md).
 #
 # USAGE:
 #   docker/build.sh [--variant V] [--platform P] [--tag T] [--push]
-#                   [--release [--repo R] [--allow-dirty]] [-- <buildx args>]
+#                   [--release --repo R [--allow-dirty]] [-- <buildx args>]
 #
-#   --variant V    cuda | cpu | xpu (default: cuda). Selects docker/Dockerfile.<V>
-#                  and defaults the tag to biom3:<V>. xpu is amd64-only.
-#                  cpu is the slim CPU-only inference image (no training).
+#   --variant V    cuda | cpu | xpu | xpu-oneapi (default: cuda). Selects
+#                  docker/Dockerfile.<V> and defaults the tag to biom3:<V>.
+#                  xpu and xpu-oneapi are amd64-only. cpu is the slim CPU-only
+#                  inference image (no training).
 #   --platform P   linux/amd64 | linux/arm64 | linux/amd64,linux/arm64
 #                  (default: builder's native platform, or every architecture
 #                  the variant supports under --release). Cross-arch builds
@@ -33,8 +35,8 @@
 #   --release      tag <repo>:<variant>-dev + <repo>:<variant>-<shortsha> and
 #                  push them. Implies --push. Refuses a dirty tree so the sha
 #                  tag matches the commit.
-#   --repo R       registry repo WITHOUT a tag, for --release
-#                  (default: ghcr.io/natural-machine/biom3)
+#   --repo R       registry repo WITHOUT a tag, e.g. ghcr.io/<org>/biom3.
+#                  Required with --release; there is no default.
 #   --allow-dirty  allow --release from a dirty tree; the sha tag gets a
 #                  -dirty suffix
 #
@@ -54,7 +56,7 @@ PLATFORM=""
 TAG=""
 PUSH=0
 RELEASE=0
-REPO="ghcr.io/natural-machine/biom3"
+REPO=""
 ALLOW_DIRTY=0
 EXTRA=()
 
@@ -68,7 +70,7 @@ while [[ $# -gt 0 ]]; do
         --repo)        REPO="$2"; shift 2 ;;
         --allow-dirty) ALLOW_DIRTY=1; shift ;;
         --)            shift; EXTRA=("$@"); break ;;
-        -h|--help)     sed -n '3,44p' "$0"; exit 0 ;;
+        -h|--help)     sed -n '3,46p' "$0"; exit 0 ;;
         *)             echo "Unknown arg: $1" >&2; exit 1 ;;
     esac
 done
@@ -99,6 +101,10 @@ if [[ "${RELEASE}" -eq 1 ]]; then
     if [[ -n "${TAG}" ]]; then
         echo "ERROR: --tag and --release are mutually exclusive (--release derives" >&2
         echo "       its tags from --repo and the git sha)." >&2
+        exit 1
+    fi
+    if [[ -z "${REPO}" ]]; then
+        echo "ERROR: --release needs --repo (e.g. --repo ghcr.io/<org>/biom3)." >&2
         exit 1
     fi
 

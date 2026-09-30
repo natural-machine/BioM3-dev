@@ -70,15 +70,16 @@ resolve download.pytorch.org` — disconnect the VPN for the build.
 
 ## Publishing to GHCR
 
-The public image at `ghcr.io/natural-machine/biom3` is a **multi-arch manifest list**
-covering `linux/amd64` (cloud instances) and `linux/arm64` (DGX Spark), so both pull
-the same tag. Build every architecture in one pass, from **one** host of either
-architecture:
+The public cuda image is a **multi-arch manifest list** covering `linux/amd64` (cloud
+instances) and `linux/arm64` (DGX Spark), so both pull the same tag. Build every
+architecture in one pass, from **one** host of either architecture. The destination
+repo is always given with `--repo`; the scripts have no default:
 
 ```bash
+REPO=ghcr.io/<org>/biom3
 echo "$GHCR_TOKEN" | docker login ghcr.io -u <github-user> --password-stdin
-docker/build.sh --variant cuda --release
-docker buildx imagetools inspect ghcr.io/natural-machine/biom3:cuda-dev
+docker/build.sh --variant cuda --release --repo "$REPO"
+docker buildx imagetools inspect "$REPO:cuda-dev"
 ```
 
 `--release` pushes `cuda-<sha>` (immutable) and `cuda-dev` (moving; what `cloud/*.yaml`
@@ -98,9 +99,10 @@ docker buildx inspect            # Platforms: must list both architectures
 manifest list and the cu129 index serves aarch64 wheels — so multi-arch is purely a
 build-orchestration concern.
 
-[`push.sh`](push.sh) publishes an already-built image under the same tags, but a local
-image is **single-arch**. It is the path for the amd64-only `xpu` variant; for cuda it
-refuses to overwrite a multi-arch `-dev` tag (`--force-dev` overrides).
+[`push.sh`](push.sh) publishes an already-built image under the same tags
+(`docker/push.sh --variant xpu --repo "$REPO"`), but a local image is **single-arch**.
+It is the path for the amd64-only `xpu` variant; for cuda it refuses to overwrite a
+multi-arch `-dev` tag (`--force-dev` overrides).
 
 **Publishing makes the baked `src/`, `scripts/`, `tests/`, and `configs/` world-readable.**
 The full runbook — token creation, package visibility, anonymous-pull verification — is in

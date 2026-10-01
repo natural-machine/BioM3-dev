@@ -65,12 +65,45 @@ def list_bundle_files(ref):
     return files
 
 
-def _plan(files, output_dir, prefix, include_other):
-    """Split bundle files into (to_fetch, present, conflicting, ignored).
+def describe_path(path):
+    """Describe a path that is in the way, resolving a symlink for the message."""
+    if os.path.islink(path):
+        state = "symlink" if os.path.exists(path) else "broken symlink"
+        return f"{path} -> {os.readlink(path)} ({state})"
+    if os.path.isdir(path):
+        return f"{path} (is a directory)"
+    return f"{path} (not a regular file)"
 
-    to_fetch and conflicting hold (rel, dest, digest, size) tuples.
+
+def blocking_path(path, root):
+    """Return the first component of *path* under *root* that is not a directory.
+
+    A broken symlink counts: ``makedirs(..., exist_ok=True)`` raises on one,
+    since the path exists without being a directory.
     """
-    to_fetch, present, conflicting, ignored = [], [], [], []
+    root, path = os.path.abspath(root), os.path.abspath(path)
+    if os.path.lexists(root) and not os.path.isdir(root):
+        return root
+    if path != root and not path.startswith(root + os.sep):
+        return None
+    current = root
+    rel = os.path.relpath(path, root)
+    for part in [] if rel == os.curdir else rel.split(os.sep):
+        current = os.path.join(current, part)
+        if not os.path.lexists(current):
+            return None
+        if not os.path.isdir(current):
+            return current
+    return None
+
+
+def _plan(files, output_dir, prefix, include_other):
+    """Split bundle files into (to_fetch, present, conflicting, ignored, blocked).
+
+    to_fetch and conflicting hold (rel, dest, digest, size) tuples; blocked
+    holds descriptions of paths that cannot be written or created.
+    """
+    to_fetch, present, conflicting, ignored, blocked = [], [], [], [], []
     for path, digest, size in files:
         if path.startswith(prefix):
             rel = path[len(prefix):]
@@ -81,14 +114,19 @@ def _plan(files, output_dir, prefix, include_other):
             continue
         dest = os.path.join(output_dir, rel)
         entry = (rel, dest, digest, size)
-        if os.path.isfile(dest):
+        parent = blocking_path(os.path.dirname(dest), output_dir)
+        if parent:
+            blocked.append(describe_path(parent))
+        elif os.path.isfile(dest):
             if sha256_file(dest) == digest:
                 present.append(rel)
             else:
                 conflicting.append(entry)
+        elif os.path.lexists(dest):
+            blocked.append(describe_path(dest))
         else:
             to_fetch.append(entry)
-    return to_fetch, present, conflicting, ignored
+    return to_fetch, present, conflicting, ignored, list(dict.fromkeys(blocked))
 
 
 def fetch_bundle(registry, tag, output_dir, prefix, include_other=False,
@@ -110,9 +148,18 @@ def fetch_bundle(registry, tag, output_dir, prefix, include_other=False,
         raise RuntimeError(f"{ref}: manifest lists no files")
 
     dest_root = os.path.abspath(output_dir)
-    to_fetch, present, conflicting, ignored = _plan(
+    to_fetch, present, conflicting, ignored, blocked = _plan(
         files, dest_root, prefix, include_other
     )
+
+    if blocked:
+        raise RuntimeError(
+            "these paths are in the way, so nothing was downloaded:\n  "
+            + "\n  ".join(blocked)
+            + "\n\nIf this tree holds symlinks into a shared location, bind or "
+            "mount that location at the same path, or fetch into a different "
+            "output directory. --force does not remove these paths."
+        )
 
     if conflicting and not force:
         raise RuntimeError(
@@ -136,7 +183,16 @@ def fetch_bundle(registry, tag, output_dir, prefix, include_other=False,
         return dest_root
 
     for i, (rel, dest, digest, size) in enumerate(to_fetch, 1):
-        os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
+        parent = os.path.dirname(dest) or "."
+        try:
+            os.makedirs(parent, exist_ok=True)
+        except (FileExistsError, NotADirectoryError, FileNotFoundError) as exc:
+            offender = (blocking_path(parent, dest_root)
+                        or exc.filename or parent)
+            raise RuntimeError(
+                f"cannot create the directory for {rel}:\n  "
+                + describe_path(offender)
+            ) from exc
         tmp = dest + ".partial"
         print(f"  [{i}/{len(to_fetch)}] {rel} ({format_size(size)})",
               file=sys.stderr)

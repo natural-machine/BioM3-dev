@@ -94,6 +94,42 @@ def test_digest_mismatch_raises_and_leaves_nothing(fake_oras, tmp_path):
     assert not list(tmp_path.rglob("*.partial"))
 
 
+def test_broken_symlink_in_the_way_is_reported_before_fetching(fake_oras, tmp_path):
+    """A weights/ tree of symlinks into an unmounted share dangles, and
+    makedirs raises on a broken link even with exist_ok=True."""
+    (tmp_path / "sub").symlink_to("/nonexistent/share/sub")
+    with pytest.raises(RuntimeError) as exc:
+        oci.fetch_bundle(REGISTRY, "tag", tmp_path, "data/")
+    assert "broken symlink" in str(exc.value)
+    assert "/nonexistent/share/sub" in str(exc.value)
+    assert fake_oras.fetched == []
+    assert not (tmp_path / "a.csv").exists()
+
+
+def test_blocked_path_is_not_overridden_by_force(fake_oras, tmp_path):
+    (tmp_path / "sub").symlink_to("/nonexistent/share/sub")
+    with pytest.raises(RuntimeError, match="in the way"):
+        oci.fetch_bundle(REGISTRY, "tag", tmp_path, "data/", force=True)
+    assert fake_oras.fetched == []
+
+
+def test_directory_where_a_file_belongs_is_reported(fake_oras, tmp_path):
+    (tmp_path / "a.csv").mkdir()
+    with pytest.raises(RuntimeError, match="is a directory"):
+        oci.fetch_bundle(REGISTRY, "tag", tmp_path, "data/")
+    assert fake_oras.fetched == []
+
+
+def test_resolvable_symlinked_dir_is_accepted(fake_oras, tmp_path):
+    share = tmp_path / "share"
+    share.mkdir()
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "sub").symlink_to(share)
+    oci.fetch_bundle(REGISTRY, "tag", out, "data/")
+    assert (share / "b.txt").read_bytes() == b"notice\n"
+
+
 def test_dry_run_fetches_nothing(fake_oras, tmp_path):
     oci.fetch_bundle(REGISTRY, "tag", tmp_path, "data/", dry_run=True)
     assert fake_oras.fetched == []

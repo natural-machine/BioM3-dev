@@ -35,6 +35,7 @@ where = ["src"]
 "biom3.app" = ["*.json"]
 
 [project.scripts]
+biom3 = "biom3.cli:main"
 biom3_train_stage1 = "biom3.Stage1.__main__:run_stage1_training"
 biom3_train_stage2 = "biom3.Stage2.__main__:run_stage2_training"
 biom3_train_stage3 = "biom3.Stage3.__main__:run_stage3_training"

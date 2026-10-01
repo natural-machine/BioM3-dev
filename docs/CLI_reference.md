@@ -16,6 +16,49 @@ Entrypoints covered elsewhere:
 
 ---
 
+## The `biom3` command
+
+`biom3 <command> [<args>]` runs the entrypoints below under shorter names. Each command takes exactly the same arguments as the `biom3_*` entrypoint it runs, so the argument tables in this document apply unchanged. The `biom3_*` entrypoints remain available.
+
+| Command | Runs | Listed by |
+| ------- | ---- | --------- |
+| `biom3 embed` | `biom3_embedding_pipeline` | `biom3 --help` |
+| `biom3 generate` | `biom3_ProteoScribe_sample` | `biom3 --help` |
+| `biom3 finetune` | `biom3_train_stage3 --finetune True` | `biom3 --help` |
+| `biom3 finetune-generalized` | `biom3_finetune_stage3` | `biom3 --help` |
+| `biom3 train stage1` | `biom3_train_stage1` | `biom3 --help` |
+| `biom3 train stage2` | `biom3_train_stage2` | `biom3 --help` |
+| `biom3 train stage3` | `biom3_train_stage3` | `biom3 --help` |
+| `biom3 fetch weights` | `biom3_fetch_weights` | `biom3 --help` |
+| `biom3 fetch dataset` | `biom3_fetch_dataset` | `biom3 --help` |
+| `biom3 stage1 infer` | `biom3_PenCL_inference` | `biom3 --help --all` (advanced) |
+| `biom3 stage2 sample` | `biom3_Facilitator_sample` | `biom3 --help --all` (advanced) |
+| `biom3 manifold fit` | `biom3_fit_manifold` | `biom3 --help --all` (advanced) |
+| `biom3 manifold score` | `biom3_score_manifold` | `biom3 --help --all` (advanced) |
+| `biom3 rl grpo` | `biom3_grpo_train` | `biom3 --help --all` (experimental) |
+| `biom3 rl gdpo` | `biom3_gdpo_train` | `biom3 --help --all` (experimental) |
+| `biom3 rl dpo` | `biom3_dpo_train` | `biom3 --help --all` (experimental) |
+| `biom3 multidomain finetune` | `biom3_finetune_multidomain` | `biom3 --help --all` (experimental) |
+| `biom3 multidomain sample` | `biom3_sample_multidomain` | `biom3 --help --all` (experimental) |
+
+```bash
+biom3 --help                 # the main commands
+biom3 --help --all           # every command, including advanced and experimental
+biom3 train --help           # the commands in a group
+biom3 train stage3 --help    # one command's arguments
+biom3 --version
+```
+
+Notes:
+
+- `biom3 finetune` sets `--finetune True` itself. Passing `--finetune` to it is an error; use `biom3 train stage3` to train without finetuning.
+- Commands in every group are runnable. The group only decides whether `biom3 --help` lists the command without `--all`.
+- Not every entrypoint has a `biom3` command. Dataset building (`biom3_build_*`), `biom3_app`, and the benchmarks are available only under their `biom3_*` names.
+- An existing editable install needs `pip install -e .` rerun once to gain the `biom3` command. Container images built before the command was added do not have it; use the `biom3_*` names there.
+- The commands are declared in [src/biom3/cli/registry.py](../src/biom3/cli/registry.py). Exposing another entrypoint is one entry there, provided its module defines `parse_arguments(argv)` and `main(args)`.
+
+---
+
 ## Inference Entrypoints
 
 ### `biom3_PenCL_inference` — Stage 1 PenCL inference

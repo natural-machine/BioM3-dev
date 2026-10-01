@@ -10,6 +10,7 @@
     - [Embedding and generation workflow](#embedding-and-generation-workflow-1)
   - [Case 3: Using BioM3 on HPC environments through Apptainer](#case-3-using-biom3-on-hpc-environments-through-apptainer)
     - [Embedding and generation workflow](#embedding-and-generation-workflow-2)
+  - [Troubleshooting](#troubleshooting)
 - [Detailed Usage Instructions](#detailed-usage-instructions)
   - [Finetuning ProteoScribe](#finetuning-proteoscribe)
     - [On a single CUDA device, from a code checkout](#on-a-single-cuda-device-from-a-code-checkout)
@@ -260,6 +261,13 @@ Importantly, running `apptainer exec` on Aurora requires that one be on a comput
 cd /path/to/BioM3-dev
 module load apptainer
 
+# Aurora compute nodes need the following for internet access
+# Add this chunk of code to your .bash_profile if desired. 
+export HTTP_PROXY=http://proxy.alcf.anl.gov:3128
+export HTTPS_PROXY=http://proxy.alcf.anl.gov:3128
+export http_proxy=http://proxy.alcf.anl.gov:3128
+export https_proxy=http://proxy.alcf.anl.gov:3128
+
 export BIOM3_IMAGE="biom3_xpu-oneapi-2bf065b.sif"
 mkdir -p weights
 apptainer exec --bind "$PWD/weights:/app/weights" \
@@ -316,6 +324,32 @@ scripts/aurora/apptainer_run.sh biom3_ProteoScribe_sample \
     -m weights/ProteoScribe/run1_base_proteoscribe.bin \
     -o outputs/demo/generation/generated.pt --fasta  --num_replicas 5
 ```
+
+### Troubleshooting
+
+**Aurora internet connection errors**
+
+On Aurora, compute nodes do not have network access by default, so one needs to export the following variables for interactive or submitted jobs:
+
+```bash
+export HTTP_PROXY="http://proxy.alcf.anl.gov:3128"
+export HTTPS_PROXY="http://proxy.alcf.anl.gov:3128"
+export http_proxy="http://proxy.alcf.anl.gov:3128"
+export https_proxy="http://proxy.alcf.anl.gov:3128"
+```
+
+For convenience, one may include the following in `.bash_profile`, which will automatically enable connections on compute nodes for *interactive jobs*:
+
+```bash
+# proxy settings
+if [[ -n "${PBS_JOBID:-}" ]]; then
+    export HTTP_PROXY="http://proxy.alcf.anl.gov:3128"
+    export HTTPS_PROXY="http://proxy.alcf.anl.gov:3128"
+    export http_proxy="http://proxy.alcf.anl.gov:3128"
+    export https_proxy="http://proxy.alcf.anl.gov:3128"
+fi
+```
+
 
 ## Detailed Usage Instructions
 

@@ -289,7 +289,12 @@ SETVARS=""
 # Appended, never prepended, and inside the container so the image's own
 # LD_LIBRARY_PATH survives. /hostevent exists only so PMIx can find the host's
 # libevent; nothing else should resolve there in preference to the image.
-HOSTEVENT='export LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:/hostevent"
+# The image's system library directory goes in front of it for that reason:
+# LD_LIBRARY_PATH is searched before the default directories, so without it the
+# host's copy of anything in /usr/lib64 wins -- including the Level-Zero GPU
+# driver, which leaves torch.xpu.device_count() at 0 when the image's
+# Level-Zero loader is a different version from the host's.
+HOSTEVENT='export LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:/usr/lib/x86_64-linux-gnu:/hostevent"
 '
 
 # Prepended, unlike /hostevent: the whole point is for the host libfabric to win

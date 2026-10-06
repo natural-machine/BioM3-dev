@@ -301,7 +301,7 @@ Per column:
 
 | Column | Criteria |
 | ------ | -------- |
-| `emb` | `emb.PenCL_emb.pt`, `emb.Facilitator_emb.pt` and `emb.compiled_emb.hdf5` exist. The HDF5 has one row per input row. With more than 1 rank: same rows, in input order, with no duplicates. |
+| `emb` | `emb.PenCL_emb.pt`, `emb.Facilitator_emb.pt` and `emb.compiled_emb.hdf5` exist. The HDF5 has one row per input row. With more than 1 rank: same rows, in input order, with no duplicates. The log has a `PenCL: loaded 752/752 parameters` line, and the `z_t` row norms in `emb.PenCL_emb.pt` vary from row to row; if every one is 22.63 the PenCL weights did not load (see open item 17). |
 | `s1pt`, `s3pt`, `s3ft`, `s3gft` | At least one optimizer step and one validation pass, with finite training and validation loss. A checkpoint is written under `checkpoints/<row>-<column>/` and run artifacts (`args.json`, `run.log`) under `runs/<row>-<column>/`. With more than 1 node, rank 0 writes the checkpoint once. |
 | `s3ft` | The log shows the `run1_base` weights loaded with no missing or unexpected keys, and the trainable parameter count matches the finetune flags. |
 | `s3gft` | The log shows captions composed from the records and z_c computed on the device, not read from a file. |
@@ -453,3 +453,17 @@ Per column:
    some ranks at start-up. The `aurora_v2_*` rows therefore use `xpu-oneapi-abd9941`,
    built on oneAPI 2026.1, with `BIOM3_FABRIC_DIR` pointing at libfabric 2.3.1. The `xpu`
    image behind `aurora_v1_n1d12` has not been run on the new stack.
+
+17. Stage 1 inference could embed with PenCL weights that never loaded, and report
+   nothing. **Fixed in `da524c6`.** It chose its loader from the file extension, so a
+   Lightning checkpoint named `.bin` went through a non-strict load in which no key
+   matched, and the run embedded with an untrained projection head. The sign is every
+   `z_t` row norm equal to 22.63 (√512). The loader now reads the format from the file
+   and stops the run if any parameter is left unloaded. The fix is in `src/`, so images
+   built before it, `xpu-oneapi-abd9941` included, still have the bug.
+
+   An `emb` output made from such a file is invalid. On Aurora that covers
+   `outputs/validation/au1-emb`, `au2-emb` and `au2-emb.pre-4ea2435`, which read a
+   checkout whose `weights/PenCL/run1_base_pencl.bin` is a Lightning checkpoint under a
+   `.bin` name. With the fix that same file loads correctly: its embeddings match the
+   published `run1_base` weights to 2e-6.

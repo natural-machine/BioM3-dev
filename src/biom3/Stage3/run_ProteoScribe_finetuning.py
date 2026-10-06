@@ -44,7 +44,11 @@ from biom3.core.helpers import load_json_config, convert_to_namespace
 from biom3.core.dry_run import run_dry_run
 from biom3.core.run_utils import setup_file_logging, teardown_file_logging
 from biom3.core.distributed import get_global_rank
-from biom3.core.weight_sets import check_text_attention_mask, merge_weight_set
+from biom3.core.weight_sets import (
+    check_normalize_zc,
+    check_text_attention_mask,
+    merge_weight_set,
+)
 from biom3.backend.device import (
     print_gpu_initialization, setup_logger, set_float32_matmul_precision,
     resolve_device, check_devices_per_node,
@@ -95,8 +99,8 @@ def get_finetune_args(parser):
                         help='weight-set bundle JSON (e.g. configs/weights/run1_base.json). '
                              'Fills --pencl_weights, --facilitator_weights and '
                              '--pretrained_weights when they are not given, and its '
-                             'record of how PenCL was trained is checked against '
-                             '--text_attention_mask')
+                             'records of how PenCL and ProteoScribe were trained are '
+                             'checked against --text_attention_mask and --normalize_zc')
     parser.add_argument('--text_attention_mask', default='False', type=str,
                         help='pass the caption attention mask to BERT in the frozen '
                              'text->z_c embedder. Set it to match how the PenCL '
@@ -415,8 +419,12 @@ def main(args, ds_config=None):
             )
         mask_summary, mask_warning = check_text_attention_mask(
             args.weight_set, args.pencl_weights, args.text_attention_mask)
+        zc_summary, zc_warning = check_normalize_zc(
+            args.weight_set, args.pretrained_weights, args.normalize_zc)
+        mask_warning = mask_warning + zc_warning
         if get_global_rank() == 0:
             logger.info(mask_summary)
+            logger.info(zc_summary)
             for line in mask_warning:
                 logger.warning(line)
 

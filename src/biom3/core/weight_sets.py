@@ -10,9 +10,9 @@ relative paths resolve against the working directory (run from the repo root),
 absolute paths are used as-is. The bundle itself supports config composition
 via ``load_json_config``.
 
-A bundle can also record how its PenCL weights were trained, under
-``pencl_trained_with_text_attention_mask`` (true or false), so a run can be
-checked against it.
+A bundle can also record how its weights were trained, so a run can be checked
+against it: ``pencl_trained_with_text_attention_mask`` and
+``proteoscribe_trained_with_normalized_zc``, each true or false.
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ from biom3.core.helpers import load_json_config
 
 WEIGHT_KEYS = ("pencl_weights", "facilitator_weights", "proteoscribe_weights")
 PENCL_MASK_KEY = "pencl_trained_with_text_attention_mask"
+NORMALIZED_ZC_KEY = "proteoscribe_trained_with_normalized_zc"
 
 
 def load_weight_set(path):
@@ -54,6 +55,31 @@ def merge_weight_set(args, weight_set_path, keys, rename=None):
             setattr(args, attr, bundle[key])
 
 
+def _recorded(weight_set_path, record_key, weights_key, weights_path):
+    """A bundle's true/false record about one of its weight files.
+
+    Returns None when nothing can be said: no bundle, no such record, or
+    ``weights_path`` is not the file the bundle names under ``weights_key``.
+    """
+    if not weight_set_path or str(weight_set_path) == "None":
+        return None
+    cfg = load_json_config(weight_set_path)
+    value = cfg.get(record_key)
+    if value is None:
+        return None
+    if not isinstance(value, bool):
+        raise ValueError(
+            f"{record_key} in {weight_set_path} must be true or false, "
+            f"got {value!r}"
+        )
+    if weights_path is not None:
+        recorded_for = cfg.get(weights_key)
+        if recorded_for is None or (
+                os.path.normpath(weights_path) != os.path.normpath(recorded_for)):
+            return None
+    return value
+
+
 def pencl_trained_with_mask(weight_set_path, pencl_weights=None):
     """Whether a bundle records PenCL as trained with the caption attention mask.
 
@@ -61,23 +87,18 @@ def pencl_trained_with_mask(weight_set_path, pencl_weights=None):
     None when nothing can be said: no bundle, no such key, or ``pencl_weights``
     is not the PenCL file the bundle names.
     """
-    if not weight_set_path or str(weight_set_path) == "None":
-        return None
-    cfg = load_json_config(weight_set_path)
-    value = cfg.get(PENCL_MASK_KEY)
-    if value is None:
-        return None
-    if not isinstance(value, bool):
-        raise ValueError(
-            f"{PENCL_MASK_KEY} in {weight_set_path} must be true or false, "
-            f"got {value!r}"
-        )
-    if pencl_weights is not None:
-        recorded_for = cfg.get("pencl_weights")
-        if recorded_for is None or (
-                os.path.normpath(pencl_weights) != os.path.normpath(recorded_for)):
-            return None
-    return value
+    return _recorded(weight_set_path, PENCL_MASK_KEY, "pencl_weights", pencl_weights)
+
+
+def proteoscribe_trained_with_normalized_zc(weight_set_path, proteoscribe_weights=None):
+    """Whether a bundle records ProteoScribe as trained on unit-length z_c.
+
+    Returns the bundle's ``proteoscribe_trained_with_normalized_zc`` value, or
+    None when nothing can be said: no bundle, no such key, or
+    ``proteoscribe_weights`` is not the ProteoScribe file the bundle names.
+    """
+    return _recorded(weight_set_path, NORMALIZED_ZC_KEY, "proteoscribe_weights",
+                     proteoscribe_weights)
 
 
 def check_text_attention_mask(weight_set_path, pencl_weights, text_attention_mask):
@@ -106,5 +127,35 @@ def check_text_attention_mask(weight_set_path, pencl_weights, text_attention_mas
         f"but this run has --text_attention_mask "
         f"{'on' if text_attention_mask else 'off'}.",
         "z_t will not be what these weights were trained to produce.",
+        bar,
+    ]
+
+
+def check_normalize_zc(weight_set_path, proteoscribe_weights, normalize_zc):
+    """Compare a run's normalize_zc setting with a bundle's record.
+
+    Returns ``(summary, warning)`` as :func:`check_text_attention_mask` does:
+    the warning is empty unless the two disagree, and the run's setting is not
+    changed either way.
+    """
+    trained_normalized = proteoscribe_trained_with_normalized_zc(
+        weight_set_path, proteoscribe_weights)
+    summary = "Conditioning vector scaled to unit length: %s; %s" % (
+        "yes" if normalize_zc else "no",
+        {True: "the weight set records ProteoScribe as trained that way",
+         False: "the weight set records ProteoScribe as trained without it",
+         None: "how ProteoScribe was trained is not recorded"}[trained_normalized],
+    )
+    if trained_normalized is None or trained_normalized == bool(normalize_zc):
+        return summary, []
+    bar = "!" * 72
+    return summary, [
+        bar,
+        "Z_C NORMALISATION DOES NOT MATCH THE WEIGHTS",
+        f"{weight_set_path} records ProteoScribe as trained "
+        f"{'with' if trained_normalized else 'without'} unit-length conditioning "
+        f"vectors ({NORMALIZED_ZC_KEY}),",
+        f"but this run has --normalize_zc {'on' if normalize_zc else 'off'}.",
+        "The model will be conditioned on vectors of a length it was not trained on.",
         bar,
     ]

@@ -62,6 +62,7 @@ from biom3.core.distributed import (
     init_distributed_if_launched,
     is_main_process,
 )
+from biom3.core.weight_sets import check_normalize_zc
 from biom3.Stage3.inpaint import (
     RUNTIME_TOKENS,
     build_template_state,
@@ -192,6 +193,11 @@ def parse_arguments(args):
                              "alpha blend. Use it for a model trained with "
                              "--normalize_zc True, and only for such a model. Also "
                              "settable as normalize_zc in the JSON config.")
+    parser.add_argument('--weight_set', type=str, default=None,
+                        help="weight-set bundle JSON naming --model_path as its "
+                             "proteoscribe_weights. Its record of how ProteoScribe was "
+                             "trained is checked against --normalize_zc; it does not "
+                             "replace --model_path.")
     return parser.parse_args(args)
 
 
@@ -1019,8 +1025,13 @@ def main(args, _setup_logging=True):
                 "Conditioning vectors scaled to unit length (mean length before: %.3f)",
                 z_c.float().norm(dim=-1).mean().item())
             z_c = normalize_conditioning(z_c)
-        else:
-            logger.info("Conditioning vectors used at their own length")
+        zc_summary, zc_warning = check_normalize_zc(
+            getattr(config_args_parser, 'weight_set', None),
+            config_args_parser.model_path, config_args.normalize_zc)
+        if rank == 0:
+            logger.info(zc_summary)
+            for line in zc_warning:
+                logger.warning(line)
 
         num_prompts = z_c.size(0) if isinstance(z_c, torch.Tensor) else len(z_c)
         animate_prompts_set = resolve_animate_prompts(
@@ -1170,6 +1181,8 @@ def main(args, _setup_logging=True):
                 },
                 config_contents=raw_config,
             )
+            for line in zc_warning:
+                logger.warning(line)
             logger.info("Done in %s", elapsed)
     finally:
         teardown_file_logging("biom3", file_handler)

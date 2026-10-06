@@ -34,7 +34,11 @@ from biom3.core.run_utils import (
     teardown_file_logging,
     write_manifest,
 )
-from biom3.core.weight_sets import check_text_attention_mask, merge_weight_set
+from biom3.core.weight_sets import (
+    check_normalize_zc,
+    check_text_attention_mask,
+    merge_weight_set,
+)
 
 logger = setup_logger(__name__)
 
@@ -275,9 +279,15 @@ def main(args):
 
         mask_summary, mask_warning = check_text_attention_mask(
             args.weight_set, args.pencl_weights, args.text_attention_mask)
+        zc_warning = []
+        if args.generate:
+            zc_summary, zc_warning = check_normalize_zc(
+                args.weight_set, args.proteoscribe_weights, args.normalize_zc)
         if is_main_process():
             logger.info(mask_summary)
-            for line in mask_warning:
+            if args.generate:
+                logger.info(zc_summary)
+            for line in mask_warning + zc_warning:
                 logger.warning(line)
 
         # Load config contents for manifest
@@ -372,7 +382,7 @@ def main(args):
 
         logger.info("Pipeline complete. Output: %s", final_output)
         logger.info("=" * 60)
-        for line in mask_warning:
+        for line in mask_warning + zc_warning:
             logger.warning(line)
 
         # Write manifest

@@ -15,7 +15,12 @@ from biom3.Stage1.io import load_pencl_weights
 from biom3.Stage3.io import prepare_model_ProteoScribe
 from biom3.core.distributed import is_main_process
 from biom3.core.io import load_state_dict_unwrap_pl as _load_state_dict_unwrap_pl
-from biom3.core.weight_sets import WEIGHT_KEYS, check_text_attention_mask, merge_weight_set
+from biom3.core.weight_sets import (
+    WEIGHT_KEYS,
+    check_normalize_zc,
+    check_text_attention_mask,
+    merge_weight_set,
+)
 from biom3.backend.device import setup_logger
 
 logger = setup_logger(__name__)
@@ -62,6 +67,9 @@ def configure_conditioning(args, cfg1):
     cfg1.text_attention_mask = bool(args.text_attention_mask)
     summary, warning = check_text_attention_mask(
         args.weight_set, args.stage1_weights, args.text_attention_mask)
+    # RL has no normalize_zc: it always conditions on z_c at its own length.
+    _, zc_warning = check_normalize_zc(args.weight_set, args.stage3_init_weights, False)
+    warning = warning + zc_warning
     if is_main_process():
         logger.info(summary)
     log_mask_warning(warning)

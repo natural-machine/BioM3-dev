@@ -213,6 +213,41 @@ selects checkpoints on it.
 
 Job 8907129, full test suite on these changes: 1650 passed, 94 skipped.
 
+## Third round: unit-length conditioning and weight sets in training
+
+Asked for next: a flag that normalises `z_c` to unit length in Stage 3 training, a guard
+against using it inconsistently, and a weight set on `biom3_train_stage3`.
+
+| Commit | What |
+| ------ | ---- |
+| `d95123f` | `fix:` `loss_non_pad` and `loss_pad` divide by the positions considered (see above) |
+| `5a9aa7d` | `feat:` `--normalize_zc` in both Stage 3 training scripts, `biom3_ProteoScribe_sample` and the pipeline's `--generate` |
+| `eb1226b` | `feat:` weight-set record `proteoscribe_trained_with_normalized_zc`, checked by the sampler, the pipeline, generalized finetuning and RL |
+| `3d484b9` | `feat:` `--weight_set` on `biom3_train_stage3`, shared with `biom3_finetune_stage3` |
+
+- **Where it applies.** In `PL_ProtARDM.common_step`, to the vector that conditions the
+  model, so after any `z_p` blend and for both the HDF5 and the on-device path. The sampler
+  applies it after its own `--alpha` blend.
+- **Why a guard.** Saved weights carry no record of how they were trained, so training with
+  the flag and generating without it would be silent. The flag decides what a run does; a
+  disagreement with the weight set logs `Z_C NORMALISATION DOES NOT MATCH THE WEIGHTS` at
+  the start and end of the run. `core.weight_sets._recorded` now reads both this record and
+  the attention-mask one.
+- **Limits.** Nothing is checked without a weight set naming the ProteoScribe file in use.
+  A newly trained model is covered only once a weight set names it and records `true`. RL
+  and the multidomain scripts do not normalise (the user accepted that); RL warns when its
+  weight set records `true`.
+- **Weight set in training.** `--weight_set` moved to the shared Stage 3 arguments. Its
+  `proteoscribe_weights` fill `--pretrained_weights` when that is not given.
+
+Committed at the user's request before the compute-node jobs came back: 8907531
+(training with and without the flag from a weight set, sampler matched and mismatched,
+pipeline `--generate`) and 8907532 (full test suite). On the login node 64 new tests and
+702 surrounding Stage 3, RL, pipeline and CLI tests pass.
+
+`5a9aa7d` dropped the executable bit `PL_wrapper.py` has always carried, a side effect of
+how the commit was assembled; the docs commit after `3d484b9` restores it.
+
 ## Open items
 
 1. **Multidomain finetuning and sampling** (`Stage3/multidomain/`) embed captions through
@@ -239,7 +274,7 @@ Job 8907129, full test suite on these changes: 1650 passed, 94 skipped.
 ## Reverting
 
 ```bash
-git revert a43e324 cc8244b 3e0e288 1e97d6c 94f6c3f
+git revert 3d484b9 eb1226b 5a9aa7d d95123f a43e324 cc8244b 3e0e288 1e97d6c 94f6c3f
 ```
 
 The three are independent in behaviour; `94f6c3f` can be reverted on its own.

@@ -176,6 +176,7 @@ The primary config example is `configs/stage3_training/pretrain_scratch_v2.json`
 | `batch_size` | `16` | Mini-batch size per device |
 | `lr` | `3e-4` | Base learning rate |
 | `scale_learning_rate` | `true` | Multiply LR by `num_nodes * devices_per_node` |
+| `normalize_zc` | `false` | Scale the conditioning vector to unit length before the model sees it, after any `z_p` blend. Generation must then use `--normalize_zc` too, or the model is conditioned on vectors of a length it was not trained on |
 | `loss_positions` | `"all"` | Which unsampled positions drive the gradients: `"all"`, or `"non_pad"` for the sequence without its padding. See [Loss terms and padding](#loss-terms-and-padding) |
 | `scheduler_gamma` | `null` | LR scheduler (`"coswarmup"` or a float gamma for StepLR). `coswarmup` warms up over the first epoch and decays over `epochs`, counting the optimizer steps one rank takes per epoch on `num_nodes * devices_per_node` ranks |
 | `warmup_steps` | `500` | LR warmup steps (for cosine warmup scheduler) |
@@ -420,6 +421,35 @@ is longer than the sequence (4.6 times in that test, in the gradient norm too), 
 With the default `"all"`, `loss_non_pad` is still logged at every step and recorded in the
 metrics history, so the sequence-only loss can be followed over training. It is not used
 for checkpoint selection unless it is added to `checkpoint_monitors`.
+
+### Normalising the conditioning vector
+
+`normalize_zc` (default `false`) divides the conditioning vector by its length just before
+the model sees it, in training and validation. It applies to the vector that conditions the
+model, so after any `z_p` blend, and it works the same whether `z_c` is read from an HDF5
+file or computed on the device.
+
+A model trained this way has to be generated from the same way: pass `--normalize_zc` to
+`biom3_ProteoScribe_sample`, or to `biom3_embedding_pipeline --generate`, which hands it on.
+The weights themselves do not say how they were trained, so a weight set can record it:
+
+```json
+{
+    "proteoscribe_weights": "./weights/ProteoScribe/my_model.bin",
+    "proteoscribe_trained_with_normalized_zc": true
+}
+```
+
+The flag always decides what a run does. When it disagrees with the record, the run logs a
+`Z_C NORMALISATION DOES NOT MATCH THE WEIGHTS` warning at the start and again at the end.
+The check runs in `biom3_train_stage3` and `biom3_finetune_stage3` (against the weights the
+run starts from), in `biom3_ProteoScribe_sample` (given `--weight_set`), and in the
+pipeline's `--generate`. It needs a weight set that names the ProteoScribe file in use;
+without one nothing is checked. A model you train with `normalize_zc` is a new set of
+weights, so it is covered only once a weight set names it and records `true`.
+
+RL post-training and the multidomain scripts do not normalise. RL warns when its weight set
+says the ProteoScribe weights were trained with normalised vectors.
 
 ### sync_dist behavior
 

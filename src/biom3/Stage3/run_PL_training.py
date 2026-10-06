@@ -1221,6 +1221,17 @@ def load_data(
     return data_module
 
 
+def require_finetune_weights(args):
+    """Refuse to finetune a model that would start from random weights."""
+    if (args.finetune and args.pretrained_weights is None
+            and args.resume_from_checkpoint is None):
+        raise ValueError(
+            "--finetune True needs --pretrained_weights (or "
+            "--resume_from_checkpoint): without them the model would be "
+            "trained from randomly initialised weights."
+        )
+
+
 def optimizer_steps_per_epoch(num_samples, batch_size, world_size,
                               acc_grad_batches=1, limit_train_batches=None):
     """Optimizer steps one rank takes per epoch.
@@ -2017,6 +2028,8 @@ def main(args, use_hydra=False, ds_config=None,):
         set_seed(seed)
         logger.info("Using seed: %s", seed)
 
+        require_finetune_weights(args)
+
         # ----- Load Data -----
         data_module = load_data(
             args=args,
@@ -2071,11 +2084,7 @@ def main(args, use_hydra=False, ds_config=None,):
                     n_layers=finetune_last_n_layers,
                     finetune_output_layers=finetune_output_layers
                 )
-            elif pretrained_weights is None:
-                logger.warning("Finetuning flag --finetune set to True but "
-                               "pretrained_weights path not specified.")
-                logger.warning("Proceeding with loaded weights")
-            elif os.path.exists(pretrained_weights):
+            else:
                 PL_model = load_pretrained_weights(
                     PL_model=PL_model,
                     checkpoint_path=pretrained_weights
@@ -2087,9 +2096,6 @@ def main(args, use_hydra=False, ds_config=None,):
                     n_layers=finetune_last_n_layers,
                     finetune_output_layers=finetune_output_layers
                 )
-            else:
-                logger.warning("Pretrained checkpoint not found at %s", pretrained_weights)
-                logger.warning("Proceeding with randomly initialized weights")
         else:
             pass
 

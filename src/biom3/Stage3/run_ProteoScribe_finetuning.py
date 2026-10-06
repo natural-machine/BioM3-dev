@@ -387,6 +387,12 @@ def main(args, ds_config=None):
         logger.info("Using seed: %s", seed)
 
         stage1_args, stage2_args = load_embedder_configs(args)
+        if args.pretrained_weights is None and args.resume_from_checkpoint is None:
+            raise ValueError(
+                "--pretrained_weights is required for finetuning unless "
+                "--resume_from_checkpoint is given: without either, ProteoScribe "
+                "would be finetuned from randomly initialised weights."
+            )
         data_module = load_data(args, stage1_args=stage1_args)
         PL_model = load_model(
             args, data_module=data_module,

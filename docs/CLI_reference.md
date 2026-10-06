@@ -395,7 +395,7 @@ The argparser is the largest in the project (70+ flags across `get_args`, `get_m
 | `--distributed_strategy` | str | `deepspeed_zero2` | One of `deepspeed_zero2` (DeepSpeed ZeRO-2 + CPU offload, sharded checkpoint dir) or `ddp` (plain DDP with `static_graph=True`, single-file checkpoint; with one rank, a single-device strategy and no process group). Distinct from `--training_strategy` which selects `primary_only` vs `combine` *data* mixing. |
 | `--resume_from_checkpoint` | str | `'None'` | Path to a Lightning `.ckpt` to resume from. |
 | `--pretrained_weights` | str | `'None'` | Path to raw weights to load before training. |
-| `--finetune` | str | `'False'` | `'True'`/`'False'`. Enable finetuning mode. |
+| `--finetune` | str | `'False'` | `'True'`/`'False'`. Enable finetuning mode. Needs `--pretrained_weights` or `--resume_from_checkpoint`; without either the run stops instead of training from random weights. |
 | `--finetune_last_n_blocks` | int | -2 | -1 = all, 0 = none, N = last N blocks. |
 | `--finetune_last_n_layers` | int | -2 | Same convention as blocks. |
 | `--finetune_output_layers` | str | `"True"` | Whether to unfreeze the transformer output layers. |
@@ -466,7 +466,7 @@ See [stage3_training.md](misc/stage3_training.md) for resumption, secondary-data
 
 Finetunes ProteoScribe on a **JSONL dataset of cleaned records** rather than on precomputed `z_c` in HDF5 (which is what `biom3_train_stage3` consumes). For each record, a `--record_schema` composes a caption from the record's fields, which is embedded to `z_c` on-device through a frozen text→`z_c` front-end (PenCL text branch + Facilitator). The caption is re-composed every epoch, so `z_c` cannot be precomputed — hence the separate entrypoint.
 
-This entrypoint is always finetuning: it loads pretrained ProteoScribe weights or resumes from a Lightning checkpoint, and freezes all but a chosen subset of the transformer. Trainer setup, callbacks, checkpointing, freezing, and arg coercion are reused from `run_PL_training`, so the shared arguments in [`biom3_train_stage3`](#biom3_train_stage3--stage-3-proteoscribe-training-and-finetuning) apply here too — including `--dry_run` and the wandb handling described below.
+This entrypoint is always finetuning: it loads pretrained ProteoScribe weights or resumes from a Lightning checkpoint (it stops if given neither), and freezes all but a chosen subset of the transformer. Trainer setup, callbacks, checkpointing, freezing, and arg coercion are reused from `run_PL_training`, so the shared arguments in [`biom3_train_stage3`](#biom3_train_stage3--stage-3-proteoscribe-training-and-finetuning) apply here too — including `--dry_run` and the wandb handling described below.
 
 #### Key arguments — data and captions
 

@@ -1,0 +1,134 @@
+# Session: Stage 3 training audit — schedule length, attention mask, pretrained weights
+
+**Date:** 2026-10-06
+**Branch:** `stage3-training-fixes` (from `dev` at `17db3ec`)
+
+## Goal
+
+After the Stage 1 inference fixes of the same day
+(`2026-10-06_stage1_inference_weight_loading.md`), look through the Stage 3 training
+scripts for the same kind of lingering issue: caption masking and padding first, then
+anything else that would silently train the wrong thing. The user chose three of the
+findings to fix in this round.
+
+## What the audit found
+
+Masking and padding:
+
+- **Padding is fine.** Generalized finetuning pads captions to the fixed `text_max_length`
+  (`Stage3/preprocess.py::make_seq_caption_collate_fn`), so `z_c` does not depend on batch
+  composition.
+- **The mask could not be passed.** That collate dropped the attention mask and the frozen
+  embedder called BERT with `input_ids` only; the RL prompt encoder likewise. Right for
+  `run1_base`, wrong for PenCL trained with the mask, and silent. **Fixed.**
+- **The HDF5 path trusts `z_c`.** `biom3_train_stage3` reads `text_to_protein_embedding`
+  from a file that records nothing about how it was made. Not changed.
+
+Other:
+
+- **The cosine schedule ignored `num_nodes`.** **Fixed.**
+- **Finetuning without pretrained weights started from random weights.** **Fixed.**
+- **Validation captions are re-randomised on every pass.** Train and validation share one
+  `GeneralizedRecordDataset`, so per-field dropout and shuffle apply to validation too. Not
+  changed (the user left it out of this round).
+- **The embedder runs in fp32** while Stage 1 inference defaults to autocast, so the two
+  match exactly only against `--no_amp`. Docstring corrected; behaviour unchanged.
+
+## Changes
+
+| Commit | What |
+| ------ | ---- |
+| `94f6c3f` | `fix:` `optimizer_steps_per_epoch` / `set_traindata_len` in `Stage3/run_PL_training.py`, used by both training scripts |
+| `1e97d6c` | `fix:` `require_finetune_weights` in `biom3_train_stage3`; the same check in `biom3_finetune_stage3` |
+| `3e0e288` | `feat:` `--text_attention_mask` and `--weight_set` in `biom3_finetune_stage3` and the GRPO, GDPO and DPO entry points |
+
+### Schedule length
+
+`args.traindata_len` is the number of optimizer steps in an epoch; `coswarmup` warms up
+over that many steps and decays over `traindata_len * epochs`. It was computed as the
+single-process loader length divided by `devices_per_node`, before `torch.distributed` was
+initialized. So it ignored `num_nodes` (N times too long on N nodes), ignored that each
+rank's shard is truncated to `num_samples // world_size`, and could be 0, which made the
+rate alternate between full and zero.
+
+It is now counted from the dataset size and `num_nodes * devices_per_node`. The default
+`log_every_n_steps` follows it, so a multi-node run logs once per real epoch again.
+
+### Attention mask
+
+`--text_attention_mask` (default off) decides whether BERT gets the mask. With it off, the
+batch contents and the calls into the embedder are exactly what they were. With it on, the
+finetune collate emits the mask after `input_ids`, `PL_ProtARDM_Finetune` hands it to
+`TextToZcEmbedder`, and the RL `_PromptEncoder` takes it from the tokenizer.
+
+Both paths accept `--weight_set`. It fills the weights the run does not name and its
+`pencl_trained_with_text_attention_mask` record is compared with the flag by the shared
+`core.weight_sets.check_text_attention_mask`, which the embedding pipeline now uses too. A
+mismatch logs the `CAPTION ATTENTION MASK DOES NOT MATCH THE WEIGHTS` banner at the start
+and end of the run; the run follows the flag. Weight paths are compared after
+normalisation, so `weights/x.bin` and `./weights/x.bin` are the same file. The two
+generalized-finetune configs now name `configs/weights/run1_base.json`.
+
+## Verification
+
+Bare metal on Aurora compute nodes, worktree source over the main checkout's venv.
+
+Job 8907033, 2 nodes:
+
+| Check | Result |
+| ----- | ------ |
+| Schedule on 2 nodes x 12 ranks, 800 training samples, batch 8, 3 epochs | built for 5 steps per epoch and 15 in total; the run took 5, 5, 5 |
+| Finetune embedder vs pipeline `z_c`, same mask setting | 4e-7 (off), 3e-7 (on) |
+| RL prompt encoder vs pipeline `z_c`, same mask setting | 2e-6 (off), 1.5e-6 (on) |
+| Either path against the pipeline with the other mask setting | 0.68 |
+| Generalized finetune, flag off | trains one step; no banner |
+| Generalized finetune, flag on, `run1_base` weight set | trains one step; banner at the start and at the end |
+| Generalized finetune without pretrained weights | refused |
+
+Job 8907034, 1 node: `pytest tests`, 1625 passed, 94 skipped.
+
+Earlier runs that show the old schedule length: a 4-node run built for 8 steps per epoch
+took 2 (`Num_warmup_steps=8`, 10 steps in the whole run); a 2-node run came out at 0.
+
+## Learning-rate history: run2d against the Stage 3 schedule
+
+The user asked whether the rate still decays enough, with `run2d` as the reference. `run2d`
+is a Stage 1 run (`pencl_sanity` workspace, `run2d_V20260926_161806`), and Stage 1 has no
+scheduler: its metrics history logs one value per parameter group for all 2,680 steps
+(2.3e-4, 2.3e-6, 2.3e-3). These changes do not touch Stage 1.
+
+For a Stage 3 run of that shape (3,072 ranks, 134 steps per epoch, 20 epochs), stepping the
+real scheduler gives, as a fraction of the peak rate at the start of each epoch:
+
+| Epoch | 0 | 1 | 5 | 10 | 15 | 19 | end | mean |
+| ----- | - | - | - | -- | -- | -- | --- | ---- |
+| old length | 0.000 | 0.004 | 0.020 | 0.039 | 0.059 | 0.074 | 0.078 | 0.039 |
+| new length | 0.000 | 1.000 | 0.895 | 0.541 | 0.161 | 0.007 | 0.000 | 0.500 |
+
+With the old length the warmup alone was 256 epochs, so the run would have ended at 7.8% of
+the peak without ever decaying.
+
+## Open items
+
+1. **Multidomain finetuning and sampling** (`Stage3/multidomain/`) embed captions through
+   the same frozen embedder with their own collate, and cannot pass the mask.
+2. **RL weight loading is non-strict.** `rl/io.py::_attach` only warns on missing keys, and
+   a missing `stage1_weights` builds an untrained PenCL.
+3. **`--warmup_steps` is not used.** It is documented as the cosine warmup length, but the
+   schedule always warms up over one epoch.
+4. **Step-based training** (`training_strategy=combine`) runs to `max_steps` while the
+   schedule is still sized from `epochs`.
+5. **Stage 1 has no learning-rate schedule.** If one is wanted for the run2 series, it is a
+   new feature there.
+6. **Validation captions** are re-randomised every pass (see above).
+7. **The HDF5 path** has no record of how its `z_c` was made.
+8. The Stage 3 cosine ends at zero, so the last epoch runs below 1% of the peak. That is
+   how the schedule is written, not part of this fix.
+
+## Reverting
+
+```bash
+git revert 3e0e288 1e97d6c 94f6c3f
+```
+
+The three are independent in behaviour; `94f6c3f` can be reverted on its own.

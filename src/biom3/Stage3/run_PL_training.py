@@ -78,7 +78,7 @@ if BACKEND_NAME == _XPU:
     # lightning imports (from local installation)
     import lightning as pl
     from lightning import Trainer
-    from lightning.pytorch.strategies import DeepSpeedStrategy, DDPStrategy
+    from lightning.pytorch.strategies import DeepSpeedStrategy, DDPStrategy, SingleDeviceStrategy
     from lightning.pytorch.loggers import TensorBoardLogger
     from lightning.pytorch.loggers import WandbLogger
     from lightning.pytorch.utilities.deepspeed import convert_zero_checkpoint_to_fp32_state_dict
@@ -90,7 +90,7 @@ else:
     # PyTorch Lightning imports
     import pytorch_lightning as pl
     from pytorch_lightning import Trainer
-    from pytorch_lightning.strategies import DeepSpeedStrategy, DDPStrategy
+    from pytorch_lightning.strategies import DeepSpeedStrategy, DDPStrategy, SingleDeviceStrategy
     from pytorch_lightning.loggers import TensorBoardLogger
     from pytorch_lightning.loggers import WandbLogger
     from pytorch_lightning.utilities.deepspeed import convert_zero_checkpoint_to_fp32_state_dict
@@ -266,7 +266,8 @@ def get_args(parser):
                         choices=['deepspeed_zero2', 'ddp'],
                         help='Lightning trainer strategy. deepspeed_zero2 (default): '
                              'DeepSpeed ZeRO Stage 2 with CPU offload. ddp: plain DDP '
-                             'with static_graph=True. Distinct from --training_strategy '
+                             'with static_graph=True, or a single-device strategy when '
+                             'there is one rank. Distinct from --training_strategy '
                              '(which selects primary_only vs combine *data* mixing).')
 
     # Finetuning
@@ -1704,11 +1705,19 @@ def train_model(
     # save_model handles both the sharded ZeRO checkpoint dir and the
     # single-file DDP .ckpt via the os.path.isdir() guard in
     # _convert_or_copy_checkpoint.
-    if args.distributed_strategy == 'ddp':
-        strategy = ddp_strategy
-    else:
+    if args.distributed_strategy != 'ddp':
         strategy = deepspeed_strategy
+    elif num_nodes * devices_per_node > 1:
+        strategy = ddp_strategy
+    elif args.device == 'xpu':
+        # One rank needs no process group. Explicit device, as in Stage 1:
+        # Lightning's 'auto' resolves an XPU run to a CPU root device.
+        strategy = SingleDeviceStrategy(device=torch.device('xpu'))
+    else:
+        strategy = 'auto'
     logger.info("Using distributed_strategy=%s", args.distributed_strategy)
+    if strategy is not deepspeed_strategy and strategy is not ddp_strategy:
+        logger.info("One rank: single-device strategy in place of DDP")
 
     progress_bar = getattr(args, 'progress_bar', None)
     if progress_bar is None:

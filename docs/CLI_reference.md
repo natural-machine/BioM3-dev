@@ -86,6 +86,8 @@ Produces joint protein/text embeddings (`z_p`, `z_t`) from a CSV of (sequence, p
 | `--batch_size` | int | 32 | Inference batch size. |
 | `--num_workers` | int | 0 | DataLoader worker count. |
 | `--load_from_checkpoint` | flag | False | Kept for compatibility; it no longer changes how weights load. With it, or with a `.ckpt` path, the network class follows the config's `model_type`. |
+| `--text_padding` | str | `max_padding` | Caption padding: `max_padding` pads to `text_max_length`, as training does; `dynamic` pads to the batch's longest caption. Without `--text_attention_mask`, `dynamic` makes `z_t` depend on batch composition. |
+| `--text_attention_mask` | flag | False | Pass the caption attention mask to BERT so `[PAD]` tokens are ignored. Set it to match how the weights were trained: on for weights trained with the mask (Stage 1 pfam training since 2026-09-09), off for `run1_base`. A mismatch runs without error but gives a different `z_t` (mean cosine 0.87 to the matched setting, measured on `run1_base`). With it on, `--text_padding dynamic` gives the same `z_t` and is faster. |
 | `--no_amp` | flag | False | Disable autocast and run the forward pass in fp32. Autocast (bf16 on xpu, fp16 on cuda) is on by default. bf16 rounding depends on tensor shape, so results vary slightly with batch size; pair `--no_amp` with `--float32_matmul_precision highest` when comparing runs. |
 | `--cross_comparison_sample_limit` | int | 0 | Samples used for the O(n²) cross-comparison metrics (dot-product probabilities, homology matrix). `0` = skip entirely (default), `-1` = all, positive = that many. Each metric allocates an n×n fp32 matrix (~25 GB at n=80k), so `-1` is only safe on small datasets. **Print-only** — saved embeddings are unaffected. |
 
@@ -231,6 +233,8 @@ Runs `biom3_PenCL_inference` → `biom3_Facilitator_sample` → HDF5 compilation
 | `--device` | str | `auto` | One of `auto`, `cpu`, `cuda`, `xpu`. `auto` = the detected backend: CUDA, then XPU, else CPU. |
 | `--batch_size` | int | 256 | Stage 1 batch size. |
 | `--num_workers` | int | 0 | Stage 1 DataLoader worker count. |
+| `--text_padding` | str | `max_padding` | Forwarded to Stage 1. |
+| `--text_attention_mask` | flag | False | Forwarded to Stage 1: pass the caption attention mask to BERT. Must match how the PenCL weights were trained; off for `run1_base`. |
 | `--no_amp` | flag | False | Forwarded to Stage 1: run the forward pass in fp32 instead of autocast. |
 | `--float32_matmul_precision` | str | config (`high`) | Forwarded to Stage 1. Pair `highest` with `--no_amp` for a deterministic fp32 forward pass. |
 | `--cross_comparison_sample_limit` | int | 0 | Forwarded to Stage 1. `0` = skip the O(n²) cross-comparison metrics (default), `-1` = all, positive = that many. **Print-only**. |

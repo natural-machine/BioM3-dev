@@ -121,7 +121,16 @@ def parse_arguments(args):
                         help="caption padding. 'max_padding' pads to "
                              "text_max_length, matching training; 'dynamic' pads "
                              "to the batch's longest caption, which makes z_t "
-                             "depend on batch composition.")
+                             "depend on batch composition unless "
+                             "--text_attention_mask is given.")
+    parser.add_argument("--text_attention_mask", action="store_true",
+                        help="Pass the caption attention mask to BERT, so [PAD] "
+                             "tokens are ignored. Set it to match how the weights "
+                             "were trained: on for weights trained with the mask "
+                             "(Stage 1 pfam training since 2026-09-09), off "
+                             "(default) for run1_base, which was trained without "
+                             "it. With it on, z_t does not depend on padding and "
+                             "'--text_padding dynamic' is safe and faster.")
     parser.add_argument("--float32_matmul_precision", type=str, default=None,
                         choices=["highest", "high", "medium"],
                         help="fp32 matmul precision. 'high' (config default) enables "
@@ -340,7 +349,9 @@ def main(args, _setup_logging=True):
         # The dataset is built from config_args, not from the CLI namespace, so the
         # padding mode has to be injected here to reach the collate_fn.
         config_args.text_padding = config_args_parser.text_padding
-        if config_args.text_padding != "max_padding":
+        text_attention_mask = config_args_parser.text_attention_mask
+        logger.info("caption attention mask: %s", "on" if text_attention_mask else "off")
+        if config_args.text_padding != "max_padding" and not text_attention_mask:
             logger.warning(
                 "text_padding=%s: BioM3 training used max_padding, so z_t is "
                 "off-distribution here, and under dynamic padding z_t also depends "
@@ -413,7 +424,8 @@ def main(args, _setup_logging=True):
             batch_sampler=my_batches,
             num_workers=num_workers,
             pin_memory=True,
-            collate_fn=partial(prep.collate_fn, dataset=dataset, include_raw=True),
+            collate_fn=partial(prep.collate_fn, dataset=dataset, include_raw=True,
+                               include_mask=text_attention_mask),
         )
 
         # Run inference and store accession, text, protein sequence, z_t, and z_p
@@ -432,12 +444,16 @@ def main(args, _setup_logging=True):
 
         with torch.inference_mode():
             for item in tqdm.tqdm(loader, disable=not is_main):
-                x_t, x_p, texts, sequences, accessions = item
+                x_t, x_p, texts, sequences, accessions = item[:5]
                 x_t = x_t.to(device, non_blocking=True)
                 x_p = x_p.to(device, non_blocking=True)
+                x_t_mask = None
+                if text_attention_mask:
+                    x_t_mask = item[5].to(device, non_blocking=True)
 
                 with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
-                    outputs = model(x_t, x_p, compute_masked_logits=False)
+                    outputs = model(x_t, x_p, compute_masked_logits=False,
+                                    x_t_mask=x_t_mask)
                 z_t_list.append(outputs["text_joint_latent"].detach().float().cpu())
                 z_p_list.append(outputs["seq_joint_latent"].detach().float().cpu())
                 # z_t_list.append(outputs[0])

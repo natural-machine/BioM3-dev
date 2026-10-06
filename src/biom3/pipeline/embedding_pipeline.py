@@ -106,7 +106,13 @@ def parse_arguments(args):
         choices=["max_padding", "dynamic"],
         help="Stage 1 caption padding. 'max_padding' pads to text_max_length, "
              "matching training; 'dynamic' pads to the batch's longest caption, "
-             "which makes z_t depend on batch composition (default: max_padding)"
+             "which makes z_t depend on batch composition unless "
+             "--text_attention_mask is given (default: max_padding)"
+    )
+    parser.add_argument(
+        "--text_attention_mask", action="store_true",
+        help="Stage 1: pass the caption attention mask to BERT. Set it to match "
+             "how the PenCL weights were trained; off (default) for run1_base"
     )
     parser.add_argument(
         "--no_amp", action="store_true",
@@ -278,6 +284,7 @@ def main(args):
             "--cross_comparison_sample_limit", str(args.cross_comparison_sample_limit),
             "--text_padding", args.text_padding,
         ] + (["--no_amp"] if args.no_amp else [])
+          + (["--text_attention_mask"] if args.text_attention_mask else [])
           + (["--float32_matmul_precision", args.float32_matmul_precision]
              if args.float32_matmul_precision else []))
         run_stage1(stage1_args, _setup_logging=False)

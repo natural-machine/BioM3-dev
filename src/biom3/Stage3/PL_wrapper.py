@@ -142,6 +142,11 @@ class PL_ProtARDM(pl.LightningModule):
         """Which unsampled positions drive the gradients: 'all' or 'non_pad'."""
         return getattr(self.script_args, 'loss_positions', 'all')
 
+    @property
+    def normalize_zc(self) -> bool:
+        """Whether the conditioning vector is scaled to unit length for the model."""
+        return bool(getattr(self.script_args, 'normalize_zc', False))
+
     def forward(
             self,
             x: torch.Tensor,
@@ -300,6 +305,8 @@ class PL_ProtARDM(pl.LightningModule):
 
             # class labels
             y_c = realization[1]#.long()
+            if self.normalize_zc:
+                y_c = F.normalize(y_c.float(), dim=-1)
 
             # input samples
             realization = realization[0]
@@ -394,6 +401,8 @@ class PL_ProtARDM(pl.LightningModule):
         #self.common_step(realization, realization_idx, stage='EMA_val')
 
     def on_fit_start(self):
+        if self.global_rank == 0:
+            logger.info("Conditioning vector scaled to unit length: %s", self.normalize_zc)
         # Diagnostic: confirm which torch.distributed backend is actually in use.
         # On Aurora frameworks/2025.3.1 this should print 'xccl'. If it prints
         # 'ccl' or 'gloo' the DeepSpeedStrategy process_group_backend kwarg

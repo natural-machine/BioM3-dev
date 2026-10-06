@@ -252,6 +252,11 @@ def get_args(parser):
                              "constant ('zc', 'zp', or a number in [0, 1]) evaluates "
                              "at a single alpha. Either way it is fixed across epochs; "
                              "the 'blend' training schedule is not allowed here.")
+    parser.add_argument('--normalize_zc', default='False', type=str,
+                        help="scale the conditioning vector to unit length before the "
+                             "model sees it, after any z_p blend, in training and "
+                             "validation. Generation has to match: a model trained this "
+                             "way needs --normalize_zc in biom3_ProteoScribe_sample too")
     parser.add_argument('--zp_path', default=None, type=str,
                         help='Stage 2 Facilitator output (.pt) holding z_p row-aligned '
                              'with --primary_data_path. Required by biom3_train_stage3 '
@@ -1157,6 +1162,7 @@ def apply_arg_type_conversions(args):
     args.pretrained_weights = nonestr_to_none(args.pretrained_weights)
     args.wandb = str_to_bool(args.wandb)
     args.scale_learning_rate = parse_lr_scaling(args.scale_learning_rate)
+    args.normalize_zc = str_to_bool(args.normalize_zc)
     if args.loss_positions not in ('all', 'non_pad'):
         raise ValueError(
             f"loss_positions must be 'all' or 'non_pad', got {args.loss_positions!r}")

@@ -187,6 +187,11 @@ def parse_arguments(args):
                              "* z_c. 0.0 = text only (default, the established "
                              "behaviour); 1.0 = sequence only. Requires z_p in "
                              "the embedding file when > 0.")
+    parser.add_argument('--normalize_zc', action='store_true', default=False,
+                        help="scale each conditioning vector to unit length, after any "
+                             "alpha blend. Use it for a model trained with "
+                             "--normalize_zc True, and only for such a model. Also "
+                             "settable as normalize_zc in the JSON config.")
     return parser.parse_args(args)
 
 
@@ -869,6 +874,11 @@ def blend_conditioning(embedding_dataset, alpha):
         )
     return alpha * z_p + (1.0 - alpha) * z_c
 
+def normalize_conditioning(z_c):
+    """Scale each conditioning vector to unit length, as training's normalize_zc does."""
+    return nn.functional.normalize(z_c.float(), dim=-1)
+
+
 def main(args, _setup_logging=True):
     args.device = resolve_device(args.device)
     # Parse arguments
@@ -1001,6 +1011,16 @@ def main(args, _setup_logging=True):
         alpha = getattr(config_args_parser, 'alpha', 0.0)
         z_c = blend_conditioning(embedding_dataset, alpha)
         logger.info("Conditioning blend: alpha=%.3f (0 = z_c, 1 = z_p)", alpha)
+        config_args.normalize_zc = bool(
+            getattr(config_args_parser, 'normalize_zc', False)
+            or getattr(config_args, 'normalize_zc', False))
+        if config_args.normalize_zc:
+            logger.info(
+                "Conditioning vectors scaled to unit length (mean length before: %.3f)",
+                z_c.float().norm(dim=-1).mean().item())
+            z_c = normalize_conditioning(z_c)
+        else:
+            logger.info("Conditioning vectors used at their own length")
 
         num_prompts = z_c.size(0) if isinstance(z_c, torch.Tensor) else len(z_c)
         animate_prompts_set = resolve_animate_prompts(
@@ -1139,6 +1159,7 @@ def main(args, _setup_logging=True):
                     "seed": seed,
                     "unmasking_order": config_args.unmasking_order,
                     "token_strategy": config_args.token_strategy,
+                    "normalize_zc": config_args.normalize_zc,
                     "total_sequences": num_prompts * config_args.num_replicas,
                     "output_file": os.path.abspath(args.output_path),
                 },

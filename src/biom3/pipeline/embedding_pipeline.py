@@ -178,6 +178,11 @@ def parse_arguments(args):
         help="Stage 3 unmasking order (passed through to the sampler)"
     )
     parser.add_argument(
+        "--normalize_zc", action="store_true",
+        help="Stage 3: scale each conditioning vector to unit length (passed through "
+             "to the sampler; for a ProteoScribe trained with --normalize_zc True)"
+    )
+    parser.add_argument(
         "--num_replicas", type=optional_positive_int, default=None,
         help="Stage 3 sequences per prompt (passed through to the sampler; "
              "unset defers to the sampler's config-then-default resolution)"
@@ -222,6 +227,8 @@ def _build_stage3_argv(args, input_path, output_path):
         argv += ["--unmasking_order", args.unmasking_order]
     if args.num_replicas is not None:
         argv += ["--num_replicas", str(args.num_replicas)]
+    if args.normalize_zc:
+        argv.append("--normalize_zc")
     return argv
 
 

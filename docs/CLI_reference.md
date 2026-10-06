@@ -400,7 +400,7 @@ The argparser is the largest in the project (70+ flags across `get_args`, `get_m
 | `--distributed_strategy` | str | `deepspeed_zero2` | One of `deepspeed_zero2` (DeepSpeed ZeRO-2 + CPU offload, sharded checkpoint dir) or `ddp` (plain DDP with `static_graph=True`, single-file checkpoint; with one rank, a single-device strategy and no process group). Distinct from `--training_strategy` which selects `primary_only` vs `combine` *data* mixing. |
 | `--resume_from_checkpoint` | str | `'None'` | Path to a Lightning `.ckpt` to resume from. |
 | `--pretrained_weights` | str | `'None'` | Path to raw weights to load before training. |
-| `--weight_set` | str | None | Weight-set JSON (e.g. `configs/weights/run1_base.json`). Its `proteoscribe_weights` fill `--pretrained_weights` when that is not given, and its record of how ProteoScribe was trained is checked against `--normalize_zc`. Shared with `biom3_finetune_stage3`. |
+| `--weight_set` | str | None | Weight-set JSON (e.g. `configs/weights/run1_base.json`). Its `proteoscribe_weights` fill `--pretrained_weights` when that is not given, and its record of how ProteoScribe was trained is checked against `--normalize_zc`. Shared with `biom3_finetune_stage3`. Given on the command line, it also replaces a path set in the JSON config, since the command line outranks the config; a path given on the command line always wins. |
 | `--finetune` | str | `'False'` | `'True'`/`'False'`. Enable finetuning mode. Needs `--pretrained_weights` or `--resume_from_checkpoint`; without either the run stops instead of training from random weights. |
 | `--finetune_last_n_blocks` | int | -2 | -1 = all, 0 = none, N = last N blocks. |
 | `--finetune_last_n_layers` | int | -2 | Same convention as blocks. |
@@ -494,7 +494,7 @@ This entrypoint is always finetuning: it loads pretrained ProteoScribe weights o
 | `--stage2_config_path` | `None` | Facilitator config |
 | `--pencl_weights` | `None` | PenCL weights |
 | `--facilitator_weights` | `None` | Facilitator weights |
-| `--weight_set` | `None` | Weight-set JSON (e.g. `configs/weights/run1_base.json`). Fills `--pencl_weights`, `--facilitator_weights` and `--pretrained_weights` when they are not given, and its records of how PenCL and ProteoScribe were trained are checked against `--text_attention_mask` and `--normalize_zc` |
+| `--weight_set` | `None` | Weight-set JSON (e.g. `configs/weights/run1_base.json`). Fills `--pencl_weights`, `--facilitator_weights` and `--pretrained_weights` when they are not given, and its records of how PenCL and ProteoScribe were trained are checked against `--text_attention_mask` and `--normalize_zc`. Given on the command line, it also replaces a path set in the JSON config, since the command line outranks the config; a path given on the command line always wins. |
 | `--text_attention_mask` | `False` | Pass the caption attention mask to BERT in the frozen front-end. Set it to match how the PenCL weights were trained; `False` for `run1_base`. When it disagrees with the weight set's `pencl_trained_with_text_attention_mask`, the run follows the flag and logs a loud warning at the start and the end |
 | `--zp_batch_size` | `64` | Batch size for `z_p` precomputation |
 

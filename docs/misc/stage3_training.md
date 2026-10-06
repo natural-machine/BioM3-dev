@@ -448,6 +448,11 @@ pipeline's `--generate`. It needs a weight set that names the ProteoScribe file 
 without one nothing is checked. A model you train with `normalize_zc` is a new set of
 weights, so it is covered only once a weight set names it and records `true`.
 
+Which weights a run starts from follows the usual precedence. A path given on the command
+line wins. `--weight_set` on the command line comes next and replaces a `pretrained_weights`
+set in the JSON config; the run log says so. A weight set named inside the config only fills
+paths the config leaves unset.
+
 RL post-training and the multidomain scripts do not normalise. RL warns when its weight set
 says the ProteoScribe weights were trained with normalised vectors.
 

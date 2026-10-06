@@ -245,6 +245,19 @@ Committed at the user's request before the compute-node jobs came back: 8907531
 pipeline `--generate`) and 8907532 (full test suite). On the login node 64 new tests and
 702 surrounding Stage 3, RL, pipeline and CLI tests pass.
 
+Both jobs then came back. The full suite passed (1695 passed, 94 skipped). 8907531 passed
+its sampler and pipeline parts and exposed a trap in the training part:
+`biom3_train_stage3 --config_path finetune_v1.json --weight_set configs/weights/run1_base.json`
+started from `ProteoScribe_epoch200.pth`, because `finetune_v1.json` and `finetune_v2.json`
+hard-code `pretrained_weights` and the weight set only filled unset paths. The guard then
+logged that nothing was recorded. Two follow-ups:
+
+- `ad4796c`: the log names the file a record is for and the file in use when they differ.
+- The commit after it: the user decided the command line should win. A weight set given on
+  the command line now replaces a path that came from the JSON config, in both Stage 3
+  training scripts and the RL entry points, unless that path is itself on the command line.
+  `merge_weight_set` takes the raw command line for this and reports what it replaced.
+
 `5a9aa7d` dropped the executable bit `PL_wrapper.py` has always carried, a side effect of
 how the commit was assembled; the docs commit after `3d484b9` restores it.
 

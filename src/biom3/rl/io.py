@@ -63,7 +63,12 @@ def configure_conditioning(args, cfg1):
     lines of the mismatch warning, empty unless the two disagree, so the caller
     can repeat them when the run ends.
     """
-    merge_weight_set(args, args.weight_set, keys=WEIGHT_KEYS, rename=_WEIGHT_SET_ARGS)
+    replaced = merge_weight_set(args, args.weight_set, keys=WEIGHT_KEYS,
+                                rename=_WEIGHT_SET_ARGS, argv=getattr(args, "_argv", None))
+    if is_main_process():
+        for attr, old, new in replaced:
+            logger.info("--weight_set on the command line replaces the config's %s: %s -> %s",
+                        attr, old, new)
     cfg1.text_attention_mask = bool(args.text_attention_mask)
     summary, warning = check_text_attention_mask(
         args.weight_set, args.stage1_weights, args.text_attention_mask)

@@ -160,7 +160,9 @@ def _apply_finetune_arg_conversions(args):
     args.stage2_config_path = base.nonestr_to_none(args.stage2_config_path)
     args.text_attention_mask = base.str_to_bool(args.text_attention_mask)
     # --weight_set is a shared argument; the base conversions fill pretrained_weights
-    merge_weight_set(args, args.weight_set, keys=("pencl_weights", "facilitator_weights"))
+    args._weight_set_replaced += merge_weight_set(
+        args, args.weight_set, keys=("pencl_weights", "facilitator_weights"),
+        argv=args._argv)
 
     schema = args.record_schema
     if isinstance(schema, str):
@@ -413,6 +415,7 @@ def main(args, ds_config=None):
             args.weight_set, args.pretrained_weights, args.normalize_zc)
         mask_warning = mask_warning + zc_warning
         if get_global_rank() == 0:
+            base.log_weight_set_replacements(args)
             logger.info(mask_summary)
             logger.info(zc_summary)
             for line in mask_warning:

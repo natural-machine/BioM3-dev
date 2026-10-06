@@ -92,3 +92,58 @@ def test_merge_fills_renamed_arguments(weight_set):
     assert args.stage1_weights == "./weights/PenCL/p.bin"
     assert args.stage2_weights == "explicit.bin"
     assert args.stage3_init_weights == "./weights/ProteoScribe/s.bin"
+
+
+KEYS = ("pencl_weights", "facilitator_weights", "proteoscribe_weights")
+
+
+def _from_config():
+    """Paths as a JSON config would leave them on the namespace."""
+    return Namespace(pencl_weights="cfg/p.bin", facilitator_weights="cfg/f.bin",
+                     proteoscribe_weights="cfg/s.bin")
+
+
+@pytest.mark.parametrize("argv", [["--weight_set", "ws.json"], ["--weight_set=ws.json"],
+                                  ["--weight_s", "ws.json"]])
+def test_weight_set_on_the_command_line_outranks_the_config(weight_set, argv):
+    args = _from_config()
+
+    replaced = merge_weight_set(args, weight_set(), keys=KEYS, argv=argv)
+
+    assert args.pencl_weights == "./weights/PenCL/p.bin"
+    assert args.proteoscribe_weights == "./weights/ProteoScribe/s.bin"
+    assert ("pencl_weights", "cfg/p.bin", "./weights/PenCL/p.bin") in replaced
+    assert len(replaced) == 3
+
+
+def test_a_path_on_the_command_line_still_wins(weight_set):
+    args = _from_config()
+    argv = ["--weight_set", "ws.json", "--pencl_weights", "cfg/p.bin"]
+
+    replaced = merge_weight_set(args, weight_set(), keys=KEYS, argv=argv)
+
+    assert args.pencl_weights == "cfg/p.bin"
+    assert args.facilitator_weights == "./weights/Facilitator/f.bin"
+    assert [attr for attr, _, _ in replaced] == ["facilitator_weights", "proteoscribe_weights"]
+
+
+@pytest.mark.parametrize("argv", [None, [], ["--weight_decay", "0.1"]])
+def test_weight_set_from_the_config_only_fills_what_is_unset(weight_set, argv):
+    args = _from_config()
+    args.facilitator_weights = None
+
+    replaced = merge_weight_set(args, weight_set(), keys=KEYS, argv=argv)
+
+    assert args.pencl_weights == "cfg/p.bin"
+    assert args.facilitator_weights == "./weights/Facilitator/f.bin"
+    assert replaced == []
+
+
+def test_the_same_file_is_not_reported_as_replaced(weight_set):
+    args = Namespace(pencl_weights="weights/PenCL/p.bin")
+
+    replaced = merge_weight_set(args, weight_set(), keys=("pencl_weights",),
+                                argv=["--weight_set", "ws.json"])
+
+    assert replaced == []
+    assert args.pencl_weights == "weights/PenCL/p.bin"

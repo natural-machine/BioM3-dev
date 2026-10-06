@@ -1167,8 +1167,10 @@ def apply_arg_type_conversions(args):
     args.finetune_output_layers = str_to_bool(args.finetune_output_layers)
     args.pretrained_weights = nonestr_to_none(args.pretrained_weights)
     args.weight_set = nonestr_to_none(getattr(args, 'weight_set', None))
-    merge_weight_set(args, args.weight_set, keys=("proteoscribe_weights",),
-                     rename={"proteoscribe_weights": "pretrained_weights"})
+    args._weight_set_replaced = merge_weight_set(
+        args, args.weight_set, keys=("proteoscribe_weights",),
+        rename={"proteoscribe_weights": "pretrained_weights"},
+        argv=getattr(args, '_argv', None))
     args.wandb = str_to_bool(args.wandb)
     args.scale_learning_rate = parse_lr_scaling(args.scale_learning_rate)
     args.normalize_zc = str_to_bool(args.normalize_zc)
@@ -1247,6 +1249,13 @@ def load_data(
     )
     data_module.setup()
     return data_module
+
+
+def log_weight_set_replacements(args):
+    """Report each config path that --weight_set on the command line replaced."""
+    for attr, replaced, new in getattr(args, '_weight_set_replaced', []):
+        logger.info("--weight_set on the command line replaces the config's %s: %s -> %s",
+                    attr, replaced, new)
 
 
 def require_finetune_weights(args):
@@ -2060,6 +2069,7 @@ def main(args, use_hydra=False, ds_config=None,):
         zc_summary, zc_warning = check_normalize_zc(
             args.weight_set, args.pretrained_weights, args.normalize_zc)
         if get_global_rank() == 0:
+            log_weight_set_replacements(args)
             logger.info(zc_summary)
             for line in zc_warning:
                 logger.warning(line)

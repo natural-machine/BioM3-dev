@@ -35,24 +35,53 @@ def load_weight_set(path):
     return {k: cfg[k] for k in WEIGHT_KEYS if k in cfg and cfg[k] is not None}
 
 
-def merge_weight_set(args, weight_set_path, keys, rename=None):
-    """Fill ``args.<key>`` from a bundle for each key not already set on the CLI.
+def _given_on_command_line(argv, option):
+    """Whether ``option`` is on the raw command line.
 
-    Explicit CLI values (anything other than ``None`` / ``"None"``) win over the
-    bundle. ``keys`` restricts which weight keys this consumer cares about
-    (e.g. the embedding pipeline only needs pencl + facilitator). ``rename``
-    maps a bundle key to the attribute it fills, for consumers whose argument
-    names differ (e.g. ``{"pencl_weights": "stage1_weights"}``).
+    Counts argparse's ``--option=value`` form and its unambiguous abbreviations.
+    """
+    for token in argv or ():
+        name = token.split("=", 1)[0]
+        if name.startswith("--") and len(name) > 2 and option.startswith(name):
+            return True
+    return False
+
+
+def merge_weight_set(args, weight_set_path, keys, rename=None, argv=None):
+    """Fill ``args.<key>`` from a bundle for each key the run has not set.
+
+    ``keys`` restricts which weight keys this consumer cares about (e.g. the
+    embedding pipeline only needs pencl + facilitator). ``rename`` maps a bundle
+    key to the attribute it fills, for consumers whose argument names differ
+    (e.g. ``{"pencl_weights": "stage1_weights"}``).
+
+    A path given on the command line always wins over the bundle. For consumers
+    that also read a JSON config, pass ``argv``, the raw command line: when it
+    names ``--weight_set``, the bundle in turn replaces a path that came from
+    the config, because the command line outranks the config. Without ``argv``
+    the bundle only fills what is unset.
+
+    Returns ``[(attr, replaced, new)]`` for each path the bundle replaced.
     """
     if not weight_set_path or str(weight_set_path) == "None":
-        return
+        return []
     rename = rename or {}
     bundle = load_weight_set(weight_set_path)
+    set_on_command_line = _given_on_command_line(argv, "--weight_set")
+    replaced = []
     for key in keys:
         attr = rename.get(key, key)
         current = getattr(args, attr, None)
-        if current in (None, "None") and bundle.get(key):
+        if not bundle.get(key):
+            continue
+        if current in (None, "None"):
             setattr(args, attr, bundle[key])
+        elif (set_on_command_line
+              and not _given_on_command_line(argv, "--" + attr)
+              and not _same_file(current, bundle[key])):
+            replaced.append((attr, current, bundle[key]))
+            setattr(args, attr, bundle[key])
+    return replaced
 
 
 def _record(weight_set_path, record_key, weights_key):

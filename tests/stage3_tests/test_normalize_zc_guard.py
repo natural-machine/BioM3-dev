@@ -213,3 +213,69 @@ def test_train_stage3_warns_when_the_flag_disagrees(tmp_path, monkeypatch, recor
     log = (tmp_path / "runs" / "train" / "artifacts" / "run.log").read_text()
     assert (WARNING in log) is warns
     assert "Conditioning vector scaled to unit length" in log
+
+
+def _config(tmp_path, **values):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(values))
+    return str(path)
+
+
+def test_train_stage3_weight_set_on_the_command_line_beats_the_config(tmp_path, monkeypatch):
+    config = _config(tmp_path, pretrained_weights="weights/ProteoScribe/old.pth")
+    weight_set = _weight_set(tmp_path, proteoscribe_trained_with_normalized_zc=True)
+
+    from_config = _train_args(tmp_path, "--config_path", config)
+    from_weight_set = _train_args(tmp_path, "--config_path", config, "--weight_set", weight_set)
+    explicit = _train_args(tmp_path, "--config_path", config, "--weight_set", weight_set,
+                           "--pretrained_weights", "mine.bin")
+
+    assert from_config.pretrained_weights == "weights/ProteoScribe/old.pth"
+    assert from_weight_set.pretrained_weights == "./" + PROTEOSCRIBE
+    assert explicit.pretrained_weights == "mine.bin"
+
+    def _stop(*args, **kwargs):
+        raise _Stop
+
+    monkeypatch.setattr(base, "load_data", _stop)
+    with pytest.raises(_Stop):
+        base.main(_train_args(tmp_path, "--config_path", config, "--weight_set", weight_set,
+                              "--finetune", "True"))
+    log = (tmp_path / "runs" / "train" / "artifacts" / "run.log").read_text()
+    assert "replaces the config's pretrained_weights: weights/ProteoScribe/old.pth" in log
+    assert WARNING in log
+
+
+def test_weight_set_named_in_the_config_does_not_override_its_paths(tmp_path):
+    weight_set = _weight_set(tmp_path)
+    config = _config(tmp_path, pretrained_weights="weights/ProteoScribe/old.pth",
+                     weight_set=weight_set)
+
+    assert _train_args(tmp_path, "--config_path", config).pretrained_weights == "weights/ProteoScribe/old.pth"
+
+
+def test_finetuning_weight_set_on_the_command_line_beats_the_config(tmp_path):
+    config = _config(tmp_path, pretrained_weights="cfg/s.bin", pencl_weights="cfg/p.bin",
+                     facilitator_weights="cfg/f.bin",
+                     record_schema={"sequence": {"from": "sequence"}})
+
+    args = run_ft.parse_arguments(["--config_path", config, "--run_id", "x",
+                                   "--weight_set", _weight_set(tmp_path),
+                                   "--facilitator_weights", "mine/f.bin"])
+
+    assert args.pretrained_weights == "./" + PROTEOSCRIBE
+    assert args.pencl_weights == "weights/PenCL/p.bin"
+    assert args.facilitator_weights == "mine/f.bin"
+
+
+def test_rl_weight_set_on_the_command_line_beats_the_config(tmp_path):
+    args = Namespace(weight_set=_weight_set(tmp_path), text_attention_mask=False,
+                     stage1_weights="cfg/p.ckpt", stage2_weights="cfg/f.ckpt",
+                     stage3_init_weights="cfg/s.bin",
+                     _argv=["--weight_set", "ws.json", "--stage3_init_weights", "cfg/s.bin"])
+
+    configure_conditioning(args, Namespace())
+
+    assert args.stage1_weights == "weights/PenCL/p.bin"
+    assert args.stage2_weights == "weights/Facilitator/f.bin"
+    assert args.stage3_init_weights == "cfg/s.bin"

@@ -123,7 +123,9 @@ def parse_arguments(argv):
     pre_args, _ = parser.parse_known_args(argv)
     if pre_args.config_path is not None:
         parser.set_defaults(**load_json_config(pre_args.config_path))
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    args._argv = list(argv)
+    return args
 
 
 def _required(value, name):

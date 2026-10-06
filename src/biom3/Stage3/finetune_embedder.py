@@ -48,8 +48,13 @@ class TextToZcEmbedder(nn.Module):
             dropout=stage2_args.dropout,
         )
 
-    def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
-        z_t = self.text_projection(self.text_encoder(input_ids))
+    def forward(self, input_ids: torch.Tensor,
+                attention_mask: torch.Tensor = None) -> torch.Tensor:
+        if attention_mask is None:
+            hidden = self.text_encoder(input_ids)
+        else:
+            hidden = self.text_encoder(input_ids, attention_mask=attention_mask)
+        z_t = self.text_projection(hidden)
         z_c = self.facilitator(z_t)
         return z_c
 

@@ -34,7 +34,7 @@ from biom3.core.run_utils import (
     teardown_file_logging,
     write_manifest,
 )
-from biom3.core.weight_sets import PENCL_MASK_KEY, merge_weight_set, pencl_trained_with_mask
+from biom3.core.weight_sets import check_text_attention_mask, merge_weight_set
 
 logger = setup_logger(__name__)
 
@@ -232,24 +232,6 @@ def _write_identity_zc(pencl_output, facilitator_output):
     torch.save(embedding_dataset, facilitator_output)
 
 
-def _mask_mismatch_warning(args, trained_with_mask):
-    """Lines to log when --text_attention_mask disagrees with the weight set."""
-    if trained_with_mask is None or trained_with_mask == args.text_attention_mask:
-        return []
-    bar = "!" * 72
-    return [
-        bar,
-        "CAPTION ATTENTION MASK DOES NOT MATCH THE WEIGHTS",
-        f"{args.weight_set} records PenCL as trained "
-        f"{'with' if trained_with_mask else 'without'} the mask "
-        f"({PENCL_MASK_KEY}),",
-        f"but this run has --text_attention_mask "
-        f"{'on' if args.text_attention_mask else 'off'}.",
-        "z_t will not be what these weights were trained to produce.",
-        bar,
-    ]
-
-
 def main(args):
     args.device = resolve_device(args.device)
     from biom3.Stage1.run_PenCL_inference import (
@@ -284,16 +266,10 @@ def main(args):
         logger.info("Command:     %s", " ".join(sys.argv))
         logger.info("=" * 60)
 
-        trained_with_mask = pencl_trained_with_mask(args.weight_set, args.pencl_weights)
-        mask_warning = _mask_mismatch_warning(args, trained_with_mask)
+        mask_summary, mask_warning = check_text_attention_mask(
+            args.weight_set, args.pencl_weights, args.text_attention_mask)
         if is_main_process():
-            logger.info(
-                "Caption attention mask: %s; %s",
-                "on" if args.text_attention_mask else "off",
-                {True: "the weight set records PenCL as trained with it",
-                 False: "the weight set records PenCL as trained without it",
-                 None: "how PenCL was trained is not recorded"}[trained_with_mask],
-            )
+            logger.info(mask_summary)
             for line in mask_warning:
                 logger.warning(line)
 

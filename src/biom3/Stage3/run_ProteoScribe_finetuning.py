@@ -44,6 +44,7 @@ from biom3.core.helpers import load_json_config, convert_to_namespace
 from biom3.core.dry_run import run_dry_run
 from biom3.core.run_utils import setup_file_logging, teardown_file_logging
 from biom3.core.distributed import get_global_rank
+from biom3.core.weight_sets import check_text_attention_mask, merge_weight_set
 from biom3.backend.device import (
     print_gpu_initialization, setup_logger, set_float32_matmul_precision,
     resolve_device, check_devices_per_node,
@@ -90,6 +91,16 @@ def get_finetune_args(parser):
                         help='PenCL weights (.bin/.pt/.ckpt); only text branch is used')
     parser.add_argument('--facilitator_weights', default=None, type=str,
                         help='Facilitator weights (.bin/.pt/.ckpt)')
+    parser.add_argument('--weight_set', default=None, type=str,
+                        help='weight-set bundle JSON (e.g. configs/weights/run1_base.json). '
+                             'Fills --pencl_weights, --facilitator_weights and '
+                             '--pretrained_weights when they are not given, and its '
+                             'record of how PenCL was trained is checked against '
+                             '--text_attention_mask')
+    parser.add_argument('--text_attention_mask', default='False', type=str,
+                        help='pass the caption attention mask to BERT in the frozen '
+                             'text->z_c embedder. Set it to match how the PenCL '
+                             'weights were trained: False (default) for run1_base')
 
     # LoRA finetuning — an alternative to block-freezing. When enabled the base
     # is fully frozen and low-rank adapters are trained on the attention Q/V
@@ -149,6 +160,13 @@ def _apply_finetune_arg_conversions(args):
     args.facilitator_weights = base.nonestr_to_none(args.facilitator_weights)
     args.stage1_config_path = base.nonestr_to_none(args.stage1_config_path)
     args.stage2_config_path = base.nonestr_to_none(args.stage2_config_path)
+    args.text_attention_mask = base.str_to_bool(args.text_attention_mask)
+    args.weight_set = base.nonestr_to_none(args.weight_set)
+    merge_weight_set(
+        args, args.weight_set,
+        keys=("pencl_weights", "facilitator_weights", "proteoscribe_weights"),
+        rename={"proteoscribe_weights": "pretrained_weights"},
+    )
 
     schema = args.record_schema
     if isinstance(schema, str):
@@ -227,6 +245,7 @@ def load_data(args, stage1_args):
         lazy=args.lazy_records,
         split_manifest_path=args.split_manifest_path,
         needs_unique_sequences=PL_mod.alpha_spec_uses_zp(args.train_alpha),
+        text_attention_mask=args.text_attention_mask,
     )
     data_module.setup()
     return data_module
@@ -278,6 +297,7 @@ def load_model(args, data_module, stage1_args, stage2_args):
         zp_lookup=zp_lookup,
         train_alpha=args.train_alpha,
         eval_alpha=args.eval_alpha,
+        text_attention_mask=args.text_attention_mask,
     )
     return PL_model
 
@@ -393,6 +413,13 @@ def main(args, ds_config=None):
                 "--resume_from_checkpoint is given: without either, ProteoScribe "
                 "would be finetuned from randomly initialised weights."
             )
+        mask_summary, mask_warning = check_text_attention_mask(
+            args.weight_set, args.pencl_weights, args.text_attention_mask)
+        if get_global_rank() == 0:
+            logger.info(mask_summary)
+            for line in mask_warning:
+                logger.warning(line)
+
         data_module = load_data(args, stage1_args=stage1_args)
         PL_model = load_model(
             args, data_module=data_module,
@@ -498,6 +525,9 @@ def main(args, ds_config=None):
                     )
                 except Exception as e:  # pragma: no cover
                     logger.warning("LoRA export failed (non-fatal): %s", e)
+            if get_global_rank() == 0:
+                for line in mask_warning:
+                    logger.warning(line)
             if base._MAIN_START_MONOTONIC is not None:
                 total = int(time.perf_counter() - base._MAIN_START_MONOTONIC)
                 h, rem = divmod(total, 3600)

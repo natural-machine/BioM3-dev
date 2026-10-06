@@ -1244,17 +1244,20 @@ class PL_ProtARDM_Finetune(PL_ProtARDM):
     tree (stored in a one-element list): its frozen parameters then stay out of
     ``self.parameters()`` (so the optimizer and DeepSpeed never see them) and out
     of saved checkpoints (rebuilt from PenCL/Facilitator weights on resume). It
-    runs in fp32 eval mode so its embeddings match Stage 1/2 inference exactly.
+    runs in fp32 eval mode, so its embeddings match Stage 1/2 inference run
+    without autocast. With ``text_attention_mask`` the batch carries the caption
+    attention mask after ``input_ids`` and the embedder passes it to BERT.
     """
 
     def __init__(self, args, model, embedder, zp_lookup=None, train_alpha=0.0,
-                 eval_alpha=EVAL_SPREAD):
+                 eval_alpha=EVAL_SPREAD, text_attention_mask=False):
         super().__init__(args=args, model=model)
         embedder.eval()
         for p in embedder.parameters():
             p.requires_grad = False
         self._embedder_ref = [embedder]
         self.zp_lookup = zp_lookup
+        self.text_attention_mask = text_attention_mask
         self.train_alpha = normalize_alpha_spec(train_alpha)
         self.eval_alpha = resolve_eval_alpha(eval_alpha)
 
@@ -1288,20 +1291,30 @@ class PL_ProtARDM_Finetune(PL_ProtARDM):
 
     def on_after_batch_transfer(self, batch, dataloader_idx):
         num_seqs, input_ids = batch[0], batch[1]
+        extras = list(batch[2:])
         embedder = self.embedder
         if next(embedder.parameters()).device != input_ids.device:
             embedder.to(input_ids.device)
         with torch.no_grad():
-            z_c = embedder(input_ids)
+            if self.text_attention_mask:
+                if not extras:
+                    raise RuntimeError(
+                        "text_attention_mask needs the caption attention mask in "
+                        "the batch; build the data module with "
+                        "text_attention_mask=True so the collate emits it."
+                    )
+                z_c = embedder(input_ids, attention_mask=extras.pop(0))
+            else:
+                z_c = embedder(input_ids)
         if self.zp_lookup is None:
             return [num_seqs, z_c]
-        if len(batch) < 3:
+        if not extras:
             raise RuntimeError(
                 "z_p blending needs the raw sequences in the batch; build the "
                 "data module with needs_unique_sequences=True so the collate "
                 "emits them."
             )
-        sequences = batch[2]
+        sequences = extras[0]
         z_p = torch.stack([self.zp_lookup[s] for s in sequences]).to(z_c)
         if self._is_training_batch():
             alpha = self._train_alpha(z_c.size(0), z_c.device)
@@ -1364,6 +1377,7 @@ class GeneralizedDataModule(pl.LightningDataModule):
         lazy=False,
         split_manifest_path=None,
         needs_unique_sequences=False,
+        text_attention_mask=False,
     ):
         super().__init__()
         self.jsonl_path = jsonl_path
@@ -1382,6 +1396,7 @@ class GeneralizedDataModule(pl.LightningDataModule):
         self.lazy = lazy
         self.split_manifest_path = split_manifest_path
         self.needs_unique_sequences = needs_unique_sequences
+        self.text_attention_mask = text_attention_mask
         self.min_seq_length = diffusion_steps - 2
 
     def setup(self, stage=None):
@@ -1405,6 +1420,7 @@ class GeneralizedDataModule(pl.LightningDataModule):
             sequence_key=self.sequence_key,
             caption_key=self.caption_key,
             include_sequences=self.needs_unique_sequences,
+            include_mask=self.text_attention_mask,
         )
 
         lengths = self._resolve_lengths(source, dataset, lengths)

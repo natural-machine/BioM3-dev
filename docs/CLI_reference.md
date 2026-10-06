@@ -488,6 +488,8 @@ This entrypoint is always finetuning: it loads pretrained ProteoScribe weights o
 | `--stage2_config_path` | `None` | Facilitator config |
 | `--pencl_weights` | `None` | PenCL weights |
 | `--facilitator_weights` | `None` | Facilitator weights |
+| `--weight_set` | `None` | Weight-set JSON (e.g. `configs/weights/run1_base.json`). Fills `--pencl_weights`, `--facilitator_weights` and `--pretrained_weights` when they are not given, and its record of how PenCL was trained is checked against `--text_attention_mask` |
+| `--text_attention_mask` | `False` | Pass the caption attention mask to BERT in the frozen front-end. Set it to match how the PenCL weights were trained; `False` for `run1_base`. When it disagrees with the weight set's `pencl_trained_with_text_attention_mask`, the run follows the flag and logs a loud warning at the start and the end |
 | `--zp_batch_size` | `64` | Batch size for `z_p` precomputation |
 
 #### Key arguments — LoRA and conditioning

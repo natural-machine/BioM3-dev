@@ -29,6 +29,7 @@ from biom3.core.helpers import convert_to_namespace, load_json_config
 from biom3.rl.gdpo import GDPOConfig, gdpo_train
 from biom3.rl.grpo import load_prompts
 from biom3.rl.rewards import CompositeReward, DiversityReward, build_reward
+from biom3.rl.io import add_conditioning_args, configure_conditioning, log_mask_warning
 
 logger = setup_logger(__name__)
 
@@ -183,6 +184,7 @@ def get_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("--device", type=str, default=None,
                         help="Device override; defaults to backend.get_device().")
 
+    add_conditioning_args(parser)
     return parser
 
 
@@ -225,6 +227,7 @@ def main(args):
     logger.info("Device: %s", device)
 
     cfg1 = convert_to_namespace(load_json_config(_required(args.stage1_config, "stage1_config")))
+    mask_warning = configure_conditioning(args, cfg1)
     cfg2 = convert_to_namespace(load_json_config(_required(args.stage2_config, "stage2_config")))
     cfg3 = convert_to_namespace(load_json_config(_required(args.stage3_config, "stage3_config")))
 
@@ -288,6 +291,7 @@ def main(args):
             diversity_mode=args.diversity_mode,
             diversity_target=args.diversity_target,
         )
+        log_mask_warning(mask_warning)
         return
 
     # Single-node path (unchanged).
@@ -324,6 +328,7 @@ def main(args):
         stage2_weights=args.stage2_weights,
         stage3_init_weights=args.stage3_init_weights,
     )
+    log_mask_warning(mask_warning)
 
 
 if __name__ == "__main__":

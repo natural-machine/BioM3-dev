@@ -79,6 +79,8 @@ Required fields (must end up resolved by the time the trainer starts):
 | `stage1_weights` | PenCL `.bin`/`.pt` |
 | `stage2_weights` | Facilitator `.bin`/`.pt` |
 | `stage3_init_weights` | ProteoScribe init (any supported format) |
+| `weight_set` | Optional weight-set JSON. Fills the three weights above when they are not given, and its record of how PenCL was trained is checked against `text_attention_mask` |
+| `text_attention_mask` | Pass the caption attention mask to BERT when embedding prompts (default `false`). Set it to match how the PenCL weights were trained; a mismatch with the weight set logs a loud warning |
 | `prompts_path` | UTF-8 text file, one prompt per line |
 
 GRPO hyperparameters (defaults shown):

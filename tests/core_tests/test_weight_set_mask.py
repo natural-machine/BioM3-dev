@@ -63,6 +63,15 @@ def test_check_is_quiet_otherwise(weight_set, recorded, flag):
     assert ("not recorded" in summary) is (recorded is None)
 
 
+def test_check_says_when_the_record_is_for_another_file(weight_set):
+    path = weight_set(pencl_trained_with_text_attention_mask=True)
+
+    summary, warning = check_text_attention_mask(path, "weights/PenCL/other.bin", False)
+
+    assert warning == []
+    assert "record is for ./weights/PenCL/p.bin, not the weights in use (weights/PenCL/other.bin)" in summary
+
+
 def test_check_without_a_weight_set():
     summary, warning = check_text_attention_mask(None, "weights/PenCL/p.bin", True)
 

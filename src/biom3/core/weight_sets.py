@@ -55,29 +55,49 @@ def merge_weight_set(args, weight_set_path, keys, rename=None):
             setattr(args, attr, bundle[key])
 
 
+def _record(weight_set_path, record_key, weights_key):
+    """A bundle's true/false record and the weight file it is about.
+
+    Returns ``(None, None)`` when there is no bundle or no such record.
+    """
+    if not weight_set_path or str(weight_set_path) == "None":
+        return None, None
+    cfg = load_json_config(weight_set_path)
+    value = cfg.get(record_key)
+    if value is None:
+        return None, None
+    if not isinstance(value, bool):
+        raise ValueError(
+            f"{record_key} in {weight_set_path} must be true or false, "
+            f"got {value!r}"
+        )
+    return value, cfg.get(weights_key)
+
+
+def _same_file(path, other):
+    return (path is not None and other is not None
+            and os.path.normpath(path) == os.path.normpath(other))
+
+
 def _recorded(weight_set_path, record_key, weights_key, weights_path):
     """A bundle's true/false record about one of its weight files.
 
     Returns None when nothing can be said: no bundle, no such record, or
     ``weights_path`` is not the file the bundle names under ``weights_key``.
     """
-    if not weight_set_path or str(weight_set_path) == "None":
+    value, recorded_for = _record(weight_set_path, record_key, weights_key)
+    if weights_path is not None and not _same_file(weights_path, recorded_for):
         return None
-    cfg = load_json_config(weight_set_path)
-    value = cfg.get(record_key)
-    if value is None:
-        return None
-    if not isinstance(value, bool):
-        raise ValueError(
-            f"{record_key} in {weight_set_path} must be true or false, "
-            f"got {value!r}"
-        )
-    if weights_path is not None:
-        recorded_for = cfg.get(weights_key)
-        if recorded_for is None or (
-                os.path.normpath(weights_path) != os.path.normpath(recorded_for)):
-            return None
     return value
+
+
+def _other_file_note(weight_set_path, record_key, weights_key, weights_path):
+    """Say so when a bundle's record exists but is about a different weight file."""
+    value, recorded_for = _record(weight_set_path, record_key, weights_key)
+    if value is None or weights_path is None or _same_file(weights_path, recorded_for):
+        return None
+    return (f"the weight set's record is for {recorded_for}, not the weights in use "
+            f"({weights_path}), so it is not checked")
 
 
 def pencl_trained_with_mask(weight_set_path, pencl_weights=None):
@@ -111,9 +131,10 @@ def check_text_attention_mask(weight_set_path, pencl_weights, text_attention_mas
     trained_with_mask = pencl_trained_with_mask(weight_set_path, pencl_weights)
     summary = "Caption attention mask: %s; %s" % (
         "on" if text_attention_mask else "off",
-        {True: "the weight set records PenCL as trained with it",
-         False: "the weight set records PenCL as trained without it",
-         None: "how PenCL was trained is not recorded"}[trained_with_mask],
+        _other_file_note(weight_set_path, PENCL_MASK_KEY, "pencl_weights", pencl_weights)
+        or {True: "the weight set records PenCL as trained with it",
+            False: "the weight set records PenCL as trained without it",
+            None: "how PenCL was trained is not recorded"}[trained_with_mask],
     )
     if trained_with_mask is None or trained_with_mask == bool(text_attention_mask):
         return summary, []
@@ -142,9 +163,11 @@ def check_normalize_zc(weight_set_path, proteoscribe_weights, normalize_zc):
         weight_set_path, proteoscribe_weights)
     summary = "Conditioning vector scaled to unit length: %s; %s" % (
         "yes" if normalize_zc else "no",
-        {True: "the weight set records ProteoScribe as trained that way",
-         False: "the weight set records ProteoScribe as trained without it",
-         None: "how ProteoScribe was trained is not recorded"}[trained_normalized],
+        _other_file_note(weight_set_path, NORMALIZED_ZC_KEY, "proteoscribe_weights",
+                         proteoscribe_weights)
+        or {True: "the weight set records ProteoScribe as trained that way",
+            False: "the weight set records ProteoScribe as trained without it",
+            None: "how ProteoScribe was trained is not recorded"}[trained_normalized],
     )
     if trained_normalized is None or trained_normalized == bool(normalize_zc):
         return summary, []

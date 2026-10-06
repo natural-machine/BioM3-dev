@@ -72,6 +72,16 @@ def test_check(tmp_path, recorded, flag, warns):
     assert (WARNING in warning) is warns
 
 
+def test_check_says_when_the_record_is_for_another_file(tmp_path):
+    path = _weight_set(tmp_path, proteoscribe_trained_with_normalized_zc=True)
+
+    summary, warning = check_normalize_zc(path, "weights/ProteoScribe/other.pth", False)
+
+    assert warning == []
+    assert ("record is for ./%s, not the weights in use (weights/ProteoScribe/other.pth)"
+            % PROTEOSCRIBE) in summary
+
+
 def test_sampler_accepts_a_weight_set():
     args = stage3_mod.parse_arguments(
         ["-i", "emb.pt", "-c", "cfg.json", "-m", PROTEOSCRIBE, "-o", "out.pt",

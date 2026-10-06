@@ -193,8 +193,11 @@ predates `run1_base`. There the model starts out unable to end a sequence (`loss
 generated lengths 1,015 to 1,024). With `all` it learned to within 400 steps (lengths 289
 to 496); with `non_pad` it never did (`loss_pad` 8.9, lengths 1,014 to 1,023).
 
-What does answer the original concern without changing the gradients: `loss_non_pad` is the
-undiluted per-residue number, and `checkpoint_monitors` can select on `val_loss_non_pad`.
+Limits of this evidence: one dataset, one seed, 832 steps, one learning rate, and no run
+from scratch. The user kept `all` as the default but does not take the experiment as proof
+that it is the better objective. What they asked for is in place either way: `loss_non_pad`
+is logged at every step and recorded in the metrics history under the default, and nothing
+selects checkpoints on it.
 
 Job 8907129, full test suite on these changes: 1650 passed, 94 skipped.
 

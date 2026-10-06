@@ -399,20 +399,20 @@ the explicit terms for that.
 
 Generation decodes a sequence by dropping the special tokens from all positions, so the
 length of a generated protein is set by where the model emits pad tokens. With
-`loss_positions: "non_pad"` nothing in the gradients asks the model to predict padding, and
-the model drifts away from it. In a test finetune of `run1_base` on 1,024 Swiss-Prot
-proteins (832 steps, everything else equal), `loss_pad` rose about tenfold with `"non_pad"`
-and did not move with `"all"`, and sequences generated for a 72-residue protein's prompt
-averaged 326 residues against 81. A model that starts out unable to end its sequences
-never learns to with `"non_pad"`.
+`loss_positions: "non_pad"` nothing in the gradients asks the model to predict padding. In
+the one comparison run so far, a finetune of `run1_base` on 1,024 Swiss-Prot proteins (832
+steps, one seed, everything else equal), `loss_pad` rose about tenfold with `"non_pad"` and
+did not move with `"all"`, and sequences generated for a 72-residue protein's prompt
+averaged 326 residues against 81. That is one short run, not a settled result; `loss_pad`
+is logged so the effect can be watched in any run.
 
 The non-pad term is also about as many times larger than `loss_all` as the model's length
 is longer than the sequence (4.6 times in that test, in the gradient norm too), so with
 `"non_pad"` the same learning rate acts correspondingly larger.
 
-To judge or select a model by the sequence alone without changing what it is trained on,
-keep `"all"` and add `{"metric": "val_loss_non_pad", "mode": "min"}` to
-`checkpoint_monitors`.
+With the default `"all"`, `loss_non_pad` is still logged at every step and recorded in the
+metrics history, so the sequence-only loss can be followed over training. It is not used
+for checkpoint selection unless it is added to `checkpoint_monitors`.
 
 ### sync_dist behavior
 

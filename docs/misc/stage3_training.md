@@ -176,7 +176,7 @@ The primary config example is `configs/stage3_training/pretrain_scratch_v2.json`
 | `batch_size` | `16` | Mini-batch size per device |
 | `lr` | `3e-4` | Base learning rate |
 | `scale_learning_rate` | `true` | Multiply LR by `num_nodes * devices_per_node` |
-| `scheduler_gamma` | `null` | LR scheduler (`"coswarmup"` or a float gamma for StepLR) |
+| `scheduler_gamma` | `null` | LR scheduler (`"coswarmup"` or a float gamma for StepLR). `coswarmup` warms up over the first epoch and decays over `epochs`, counting the optimizer steps one rank takes per epoch on `num_nodes * devices_per_node` ranks |
 | `warmup_steps` | `500` | LR warmup steps (for cosine warmup scheduler) |
 | `weight_decay` | `1e-6` | AdamW weight decay |
 | `precision` | `"no"` | Training precision (`"bf16"`, `"fp16"`, `"32"`, `"no"`) |

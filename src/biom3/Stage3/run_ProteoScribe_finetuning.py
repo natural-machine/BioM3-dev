@@ -233,11 +233,7 @@ def load_data(args, stage1_args):
 
 
 def load_model(args, data_module, stage1_args, stage2_args):
-    args.traindata_len = (
-        len(data_module.train_dataloader()) // args.devices_per_node // args.acc_grad_batches
-    )
-    logger.info('Length of a training epoch in batch gradient updates: %s',
-                args.traindata_len)
+    base.set_traindata_len(args, data_module)
 
     if stage2_args.emb_dim != args.text_emb_dim:
         raise ValueError(

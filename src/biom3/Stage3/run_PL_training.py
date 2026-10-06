@@ -55,6 +55,7 @@ import json
 import shutil
 import contextlib
 import logging
+import math
 import time
 import warnings
 import numpy as np
@@ -1220,6 +1221,51 @@ def load_data(
     return data_module
 
 
+def optimizer_steps_per_epoch(num_samples, batch_size, world_size,
+                              acc_grad_batches=1, limit_train_batches=None):
+    """Optimizer steps one rank takes per epoch.
+
+    Under distributed training each rank gets ``num_samples // world_size``
+    samples (see ``_make_distributed_sampler``), the DataLoader keeps the last
+    partial batch, and Lightning steps once per ``acc_grad_batches`` batches
+    and once more at the end of the epoch for any remainder.
+    """
+    per_rank = num_samples // world_size if world_size > 1 else num_samples
+    batches = math.ceil(per_rank / batch_size)
+    limit = coerce_limit_batches(limit_train_batches)
+    if isinstance(limit, int):
+        batches = min(batches, limit)
+    elif limit is not None:
+        batches = int(batches * limit)
+    return max(1, math.ceil(batches / acc_grad_batches))
+
+
+def set_traindata_len(args, data_module):
+    """Set ``args.traindata_len``, the length of an epoch in optimizer steps.
+
+    Computed from the dataset and the world size because the dataloader has no
+    distributed sampler yet: ``torch.distributed`` is only initialized once the
+    trainer starts fitting.
+    """
+    train_loader = data_module.train_dataloader()
+    num_samples = len(train_loader.dataset)
+    batch_size = train_loader.batch_size or args.batch_size
+    world_size = args.num_nodes * args.devices_per_node
+    args.traindata_len = optimizer_steps_per_epoch(
+        num_samples=num_samples,
+        batch_size=batch_size,
+        world_size=world_size,
+        acc_grad_batches=args.acc_grad_batches,
+        limit_train_batches=getattr(args, 'limit_train_batches', None),
+    )
+    logger.info('Training samples: %s', num_samples)
+    logger.info('Numer of devices: %s', args.devices_per_node)
+    logger.info('Number of nodes: %s', args.num_nodes)
+    logger.info('Batch size: %s', batch_size)
+    logger.info('Length of a training epoch in batch gradient updates: %s',
+                args.traindata_len)
+
+
 def load_model(
     args, *,
     data_module
@@ -1244,20 +1290,10 @@ def load_model(
     Returns:
         A configured PyTorch Lightning model ready for training
     """
-    devices_per_node = args.devices_per_node
-    acc_grad_batches = args.acc_grad_batches
     diffusion_steps = args.diffusion_steps
     image_size = args.image_size
-    num_nodes = args.num_nodes
-    batch_size = args.batch_size
 
-    args.traindata_len = len(data_module.train_dataloader()) // devices_per_node // acc_grad_batches
-    logger.info('Length of dataloader: %s', len(data_module.train_dataloader()))
-    logger.info('Numer of devices: %s', devices_per_node)
-    logger.info('Number of nodes: %s', num_nodes)
-    logger.info('Batch size: %s', batch_size)
-    logger.info('Length of dataloader per device: %s', len(data_module.train_dataloader()) // devices_per_node)
-    logger.info('Length of a training epoch in batch gradient updates: %s', args.traindata_len)
+    set_traindata_len(args, data_module)
     w, h = image_size, image_size
     # Ensure diffusion steps are sufficient for data dimensions
     if diffusion_steps < int(w*h):

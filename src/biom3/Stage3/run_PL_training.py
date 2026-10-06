@@ -121,6 +121,7 @@ from biom3.Stage3.callbacks import (
 from biom3.Stage3.io import prepare_model_ProteoScribe
 from biom3.core.dry_run import coerce_dry_run_output, run_dry_run
 from biom3.core.helpers import coerce_limit_batches, load_json_config
+from biom3.core.weight_sets import check_normalize_zc, merge_weight_set
 from biom3.core.run_utils import (
     backup_if_exists, collect_training_env, resolve_devices_per_node,
     setup_file_logging, teardown_file_logging, write_manifest,
@@ -271,6 +272,11 @@ def get_args(parser):
 
     parser.add_argument('--pretrained_weights', default='None', type=str,
                         help='path to .bin weight or checkpoint file containing model weights')
+    parser.add_argument('--weight_set', default=None, type=str,
+                        help='weight-set bundle JSON (e.g. configs/weights/run1_base.json). '
+                             'Its proteoscribe_weights fill --pretrained_weights when that '
+                             'is not given, and its record of how ProteoScribe was trained '
+                             'is checked against --normalize_zc')
     
     parser.add_argument('--scale_learning_rate', default='True', type=str,
                         help="scale the learning rate by the total number of devices "
@@ -1160,6 +1166,9 @@ def apply_arg_type_conversions(args):
     args.finetune = str_to_bool(args.finetune)
     args.finetune_output_layers = str_to_bool(args.finetune_output_layers)
     args.pretrained_weights = nonestr_to_none(args.pretrained_weights)
+    args.weight_set = nonestr_to_none(getattr(args, 'weight_set', None))
+    merge_weight_set(args, args.weight_set, keys=("proteoscribe_weights",),
+                     rename={"proteoscribe_weights": "pretrained_weights"})
     args.wandb = str_to_bool(args.wandb)
     args.scale_learning_rate = parse_lr_scaling(args.scale_learning_rate)
     args.normalize_zc = str_to_bool(args.normalize_zc)
@@ -2048,6 +2057,12 @@ def main(args, use_hydra=False, ds_config=None,):
         logger.info("Using seed: %s", seed)
 
         require_finetune_weights(args)
+        zc_summary, zc_warning = check_normalize_zc(
+            args.weight_set, args.pretrained_weights, args.normalize_zc)
+        if get_global_rank() == 0:
+            logger.info(zc_summary)
+            for line in zc_warning:
+                logger.warning(line)
 
         # ----- Load Data -----
         data_module = load_data(
@@ -2165,6 +2180,9 @@ def main(args, use_hydra=False, ds_config=None,):
                 completed_epochs=completed_epochs,
                 completed_steps=completed_steps,
             )
+            if get_global_rank() == 0:
+                for line in zc_warning:
+                    logger.warning(line)
             if _MAIN_START_MONOTONIC is not None:
                 total = int(time.perf_counter() - _MAIN_START_MONOTONIC)
                 h, rem = divmod(total, 3600)

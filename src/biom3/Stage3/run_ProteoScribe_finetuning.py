@@ -95,12 +95,6 @@ def get_finetune_args(parser):
                         help='PenCL weights (.bin/.pt/.ckpt); only text branch is used')
     parser.add_argument('--facilitator_weights', default=None, type=str,
                         help='Facilitator weights (.bin/.pt/.ckpt)')
-    parser.add_argument('--weight_set', default=None, type=str,
-                        help='weight-set bundle JSON (e.g. configs/weights/run1_base.json). '
-                             'Fills --pencl_weights, --facilitator_weights and '
-                             '--pretrained_weights when they are not given, and its '
-                             'records of how PenCL and ProteoScribe were trained are '
-                             'checked against --text_attention_mask and --normalize_zc')
     parser.add_argument('--text_attention_mask', default='False', type=str,
                         help='pass the caption attention mask to BERT in the frozen '
                              'text->z_c embedder. Set it to match how the PenCL '
@@ -165,12 +159,8 @@ def _apply_finetune_arg_conversions(args):
     args.stage1_config_path = base.nonestr_to_none(args.stage1_config_path)
     args.stage2_config_path = base.nonestr_to_none(args.stage2_config_path)
     args.text_attention_mask = base.str_to_bool(args.text_attention_mask)
-    args.weight_set = base.nonestr_to_none(args.weight_set)
-    merge_weight_set(
-        args, args.weight_set,
-        keys=("pencl_weights", "facilitator_weights", "proteoscribe_weights"),
-        rename={"proteoscribe_weights": "pretrained_weights"},
-    )
+    # --weight_set is a shared argument; the base conversions fill pretrained_weights
+    merge_weight_set(args, args.weight_set, keys=("pencl_weights", "facilitator_weights"))
 
     schema = args.record_schema
     if isinstance(schema, str):

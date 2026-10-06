@@ -4,9 +4,9 @@ A ProteoScribe trained on unit-length conditioning vectors has to be generated
 from, and finetuned on, unit-length vectors, and the weights themselves do not
 say how they were trained. A weight set can record it as
 proteoscribe_trained_with_normalized_zc. The flag still decides what a run does;
-the sampler, the pipeline's --generate and generalized finetuning warn loudly
-when it disagrees with the record. RL cannot normalise, so it warns whenever
-the record says the weights need it. Stages are stubbed.
+the sampler, the pipeline's --generate and both Stage 3 training scripts warn
+loudly when it disagrees with the record. RL cannot normalise, so it warns
+whenever the record says the weights need it. Stages are stubbed.
 """
 
 import json
@@ -16,6 +16,7 @@ import pytest
 import torch
 
 import biom3.Stage1.run_PenCL_inference as stage1_mod
+import biom3.Stage3.run_PL_training as base
 import biom3.Stage3.run_ProteoScribe_finetuning as run_ft
 import biom3.Stage3.run_ProteoScribe_sample as stage3_mod
 from biom3.core.weight_sets import check_normalize_zc, proteoscribe_trained_with_normalized_zc
@@ -164,3 +165,41 @@ def test_rl_warns_about_weights_that_need_normalising(tmp_path, recorded, warns)
     warning = configure_conditioning(args, Namespace())
 
     assert (WARNING in warning) is warns
+
+
+def _train_args(tmp_path, *extra):
+    return base.parse_arguments([
+        "--output_root", str(tmp_path), "--run_id", "train",
+        "--checkpoints_folder", "checkpoints", "--device", "cpu", *extra,
+    ])
+
+
+def test_train_stage3_takes_its_weights_from_a_weight_set(tmp_path):
+    weight_set = _weight_set(tmp_path)
+
+    assert _train_args(tmp_path).pretrained_weights is None
+    assert _train_args(tmp_path, "--weight_set", weight_set).pretrained_weights == "./" + PROTEOSCRIBE
+    explicit = _train_args(tmp_path, "--weight_set", weight_set, "--pretrained_weights", "mine.bin")
+    assert explicit.pretrained_weights == "mine.bin"
+    base.require_finetune_weights(_train_args(tmp_path, "--weight_set", weight_set, "--finetune", "True"))
+
+
+@pytest.mark.parametrize("recorded, flag, warns", [
+    (True, [], True),
+    (False, ["--normalize_zc", "True"], True),
+    (True, ["--normalize_zc", "True"], False),
+    (False, [], False),
+])
+def test_train_stage3_warns_when_the_flag_disagrees(tmp_path, monkeypatch, recorded, flag, warns):
+    def _stop(*args, **kwargs):
+        raise _Stop
+
+    monkeypatch.setattr(base, "load_data", _stop)
+    weight_set = _weight_set(tmp_path, proteoscribe_trained_with_normalized_zc=recorded)
+
+    with pytest.raises(_Stop):
+        base.main(_train_args(tmp_path, "--weight_set", weight_set, "--finetune", "True", *flag))
+
+    log = (tmp_path / "runs" / "train" / "artifacts" / "run.log").read_text()
+    assert (WARNING in log) is warns
+    assert "Conditioning vector scaled to unit length" in log

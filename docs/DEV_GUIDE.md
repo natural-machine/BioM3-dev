@@ -52,13 +52,13 @@ docker/push.sh --variant xpu --repo "$REPO"
 
 <!-- This section, in particular the code below, should be in agreement with the corresponding section of the User Guide. -->
 
-For details, refer to the appropriate section of the [User Guide](). [TODO: fill in]
+For details, refer to the appropriate section of the [User Guide](./USER_GUIDE.md#case-3-using-biom3-on-hpc-environments-through-apptainer).
 
 ```bash
 # On a login node of Aurora
 
 REPO=docker://ghcr.io/<org>/biom3  # e.g. docker://ghcr.io/ranganathanlab/biom3
-TAG=<tag>  # e.g. xpu-oneapi-e34af20
+TAG=<tag>  # e.g. xpu-oneapi-abd9941
 
 DEST=/path/to/biom3_${TAG}.sif  # Location to store the apptainer image
 

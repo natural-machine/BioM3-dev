@@ -250,10 +250,10 @@ module load apptainer
 export APPTAINER_CACHEDIR=/flare/NLDesignProtein/$USER/.apptainer/cache
 export APPTAINER_TMPDIR=/tmp/$USER/apptainer-tmp
 mkdir -p "$APPTAINER_CACHEDIR" "$APPTAINER_TMPDIR"
-apptainer build biom3_xpu-oneapi-e34af20.sif docker://ghcr.io/natural-machine/biom3:xpu-oneapi-e34af20
+apptainer build biom3_xpu-oneapi-abd9941.sif docker://ghcr.io/natural-machine/biom3:xpu-oneapi-abd9941
 ```
 
-This command should produce a file `biom3_xpu-oneapi-e34af20.sif` under the current directory. Whereas the Docker commands above point to a specified Docker image, the following commands instead point to the .sif image.
+This command should produce a file `biom3_xpu-oneapi-abd9941.sif` under the current directory. Whereas the Docker commands above point to a specified Docker image, the following commands instead point to the .sif image.
 Importantly, running `apptainer exec` on Aurora requires that one be on a compute node. As such, request an interactive job or submit a pbs job to run the following. Also note that one must load apptainer.
 
 ```bash
@@ -268,7 +268,7 @@ export HTTPS_PROXY=http://proxy.alcf.anl.gov:3128
 export http_proxy=http://proxy.alcf.anl.gov:3128
 export https_proxy=http://proxy.alcf.anl.gov:3128
 
-export BIOM3_IMAGE="biom3_xpu-oneapi-e34af20.sif"
+export BIOM3_IMAGE="biom3_xpu-oneapi-abd9941.sif"
 mkdir -p weights
 apptainer exec --bind "$PWD/weights:/app/weights" \
     "$BIOM3_IMAGE" biom3_fetch_weights run1_base -o /app/weights
@@ -297,7 +297,7 @@ Refer to that section for conceptual details. The equivalent commands, run using
 cd /path/to/BioM3-dev
 
 module load apptainer
-export BIOM3_IMAGE="$PWD/biom3_xpu-oneapi-e34af20.sif"
+export BIOM3_IMAGE="$PWD/biom3_xpu-oneapi-abd9941.sif"
 
 # The wrapper mounts data/ and outputs/ by name, so they have to exist.
 mkdir -p data outputs
@@ -633,7 +633,7 @@ With the dataset fetched as described above, embed it (Stages 1 and 2) once, on 
 ```bash
 # On an Aurora compute node, from the root of the checkout
 module load apptainer
-export BIOM3_IMAGE="$PWD/biom3_xpu-oneapi-e34af20.sif"
+export BIOM3_IMAGE="$PWD/biom3_xpu-oneapi-abd9941.sif"
 
 scripts/aurora/apptainer_run.sh biom3_embedding_pipeline \
     -i data/gfp_sample_dataset.csv \
@@ -649,7 +649,7 @@ On a compute node, either interactively or through a PBS script, run the followi
 
 ```bash
 module load apptainer
-export BIOM3_IMAGE="$PWD/biom3_xpu-oneapi-e34af20.sif"
+export BIOM3_IMAGE="$PWD/biom3_xpu-oneapi-abd9941.sif"
 
 NGPU_PER_NODE=1 NGPU_TOTAL=1 BIOM3_RANK_SOURCE=mpi \
 scripts/aurora/apptainer_mpi_run.sh biom3_train_stage3 \
@@ -684,12 +684,12 @@ Through a PBS script, request N nodes and run the following command. Submit it f
 
 cd ${PBS_O_WORKDIR}
 module load apptainer
-export BIOM3_IMAGE="$PWD/biom3_xpu-oneapi-e34af20.sif"
+export BIOM3_IMAGE="$PWD/biom3_xpu-oneapi-abd9941.sif"
 
 NUM_NODES=$(wc -l < ${PBS_NODEFILE})
 export NGPU_PER_NODE=12 NGPU_TOTAL=$((NUM_NODES * 12))
 export BIOM3_RANK_SOURCE=mpi
-export BIOM3_FABRIC_DIR=/opt/cray/libfabric/1.22.0/lib64 BIOM3_FI_PROVIDER=cxi
+export BIOM3_FABRIC_DIR=/opt/cray/libfabric/2.3.1/lib64 BIOM3_FI_PROVIDER=cxi
 
 scripts/aurora/apptainer_mpi_run.sh biom3_train_stage3 \
     --config_path configs/stage3_training/finetune_v1.json \

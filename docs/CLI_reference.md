@@ -234,7 +234,7 @@ Runs `biom3_PenCL_inference` → `biom3_Facilitator_sample` → HDF5 compilation
 | `--batch_size` | int | 256 | Stage 1 batch size. |
 | `--num_workers` | int | 0 | Stage 1 DataLoader worker count. |
 | `--text_padding` | str | `max_padding` | Forwarded to Stage 1. |
-| `--text_attention_mask` | flag | False | Forwarded to Stage 1: pass the caption attention mask to BERT. Must match how the PenCL weights were trained; off for `run1_base`. |
+| `--text_attention_mask` | flag | False | Forwarded to Stage 1: pass the caption attention mask to BERT. Must match how the PenCL weights were trained; off for `run1_base`. A weight set can record that as `pencl_trained_with_text_attention_mask` (true or false); the flag still decides what the run does, and the pipeline logs a loud warning when the two disagree. |
 | `--no_amp` | flag | False | Forwarded to Stage 1: run the forward pass in fp32 instead of autocast. |
 | `--float32_matmul_precision` | str | config (`high`) | Forwarded to Stage 1. Pair `highest` with `--no_amp` for a deterministic fp32 forward pass. |
 | `--cross_comparison_sample_limit` | int | 0 | Forwarded to Stage 1. `0` = skip the O(n²) cross-comparison metrics (default), `-1` = all, positive = that many. **Print-only**. |

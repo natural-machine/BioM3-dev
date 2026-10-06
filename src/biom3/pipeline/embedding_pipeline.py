@@ -34,6 +34,7 @@ from biom3.core.run_utils import (
     teardown_file_logging,
     write_manifest,
 )
+from biom3.core.weight_sets import PENCL_MASK_KEY, merge_weight_set, pencl_trained_with_mask
 
 logger = setup_logger(__name__)
 
@@ -114,7 +115,10 @@ def parse_arguments(args):
     parser.add_argument(
         "--text_attention_mask", action="store_true",
         help="Stage 1: pass the caption attention mask to BERT. Set it to match "
-             "how the PenCL weights were trained; off (default) for run1_base"
+             "how the PenCL weights were trained; off (default) for run1_base. "
+             "A weight set can record that as "
+             "pencl_trained_with_text_attention_mask, and the pipeline warns "
+             "when this flag disagrees with it"
     )
     parser.add_argument(
         "--no_amp", action="store_true",
@@ -189,7 +193,6 @@ def parse_arguments(args):
     if parsed.generate:
         weight_keys.append("proteoscribe_weights")
 
-    from biom3.core.weight_sets import merge_weight_set
     merge_weight_set(parsed, parsed.weight_set, keys=tuple(weight_keys))
     missing = [k for k in weight_keys if not getattr(parsed, k)]
     if missing:
@@ -229,6 +232,24 @@ def _write_identity_zc(pencl_output, facilitator_output):
     torch.save(embedding_dataset, facilitator_output)
 
 
+def _mask_mismatch_warning(args, trained_with_mask):
+    """Lines to log when --text_attention_mask disagrees with the weight set."""
+    if trained_with_mask is None or trained_with_mask == args.text_attention_mask:
+        return []
+    bar = "!" * 72
+    return [
+        bar,
+        "CAPTION ATTENTION MASK DOES NOT MATCH THE WEIGHTS",
+        f"{args.weight_set} records PenCL as trained "
+        f"{'with' if trained_with_mask else 'without'} the mask "
+        f"({PENCL_MASK_KEY}),",
+        f"but this run has --text_attention_mask "
+        f"{'on' if args.text_attention_mask else 'off'}.",
+        "z_t will not be what these weights were trained to produce.",
+        bar,
+    ]
+
+
 def main(args):
     args.device = resolve_device(args.device)
     from biom3.Stage1.run_PenCL_inference import (
@@ -262,6 +283,19 @@ def main(args):
         logger.info("biom3 version: %s (git: %s)", get_biom3_version(), get_git_hash())
         logger.info("Command:     %s", " ".join(sys.argv))
         logger.info("=" * 60)
+
+        trained_with_mask = pencl_trained_with_mask(args.weight_set, args.pencl_weights)
+        mask_warning = _mask_mismatch_warning(args, trained_with_mask)
+        if is_main_process():
+            logger.info(
+                "Caption attention mask: %s; %s",
+                "on" if args.text_attention_mask else "off",
+                {True: "the weight set records PenCL as trained with it",
+                 False: "the weight set records PenCL as trained without it",
+                 None: "how PenCL was trained is not recorded"}[trained_with_mask],
+            )
+            for line in mask_warning:
+                logger.warning(line)
 
         # Load config contents for manifest
         pencl_config_contents = load_json_config(args.pencl_config)
@@ -355,6 +389,8 @@ def main(args):
 
         logger.info("Pipeline complete. Output: %s", final_output)
         logger.info("=" * 60)
+        for line in mask_warning:
+            logger.warning(line)
 
         # Write manifest
         elapsed = datetime.now() - start_time

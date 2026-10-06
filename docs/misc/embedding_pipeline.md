@@ -46,12 +46,31 @@ biom3_embedding_pipeline \
 | `--num_workers` | `0` | Dataloader workers for Stage 1 |
 | `--cross_comparison_sample_limit` | `0` | Stage 1 O(n²) cross-comparison metrics: `0` skips them, `-1` uses all, positive uses that many. Print-only; embeddings unaffected |
 | `--text_padding` | `max_padding` | Stage 1 caption padding (`max_padding` or `dynamic`) |
-| `--text_attention_mask` | off | Stage 1: pass the caption attention mask to BERT. Must match how the PenCL weights were trained; leave off for `run1_base` |
+| `--text_attention_mask` | off | Stage 1: pass the caption attention mask to BERT. Must match how the PenCL weights were trained; leave off for `run1_base`. See below |
 | `--no_amp` | off | Run Stage 1 in fp32 instead of autocast (bf16 on xpu) |
 | `--float32_matmul_precision` | config (`high`) | Stage 1 fp32 matmul precision; pair `highest` with `--no_amp` for a deterministic fp32 pass |
 | `--mmd_sample_limit` | `1000` | Sample limit for MMD in Stage 2 |
 | `--dataset_key` | `MMD_data` | HDF5 group name |
 | `--skip_facilitator` | off | Replace Stage 2 with the identity map (`z_c` = `z_t`); see below |
+
+### Caption attention mask
+
+Whether BERT should be given the caption attention mask depends on how the PenCL
+weights were trained, so it is a property of the weights. `--text_attention_mask`
+(off by default) is what decides it for a run. A weight set can record how its
+PenCL was trained:
+
+```json
+{
+    "pencl_weights": "./weights/PenCL/run1_base_pencl.bin",
+    "pencl_trained_with_text_attention_mask": false
+}
+```
+
+When the flag disagrees with that record, the run still follows the flag, and the
+pipeline logs a `CAPTION ATTENTION MASK DOES NOT MATCH THE WEIGHTS` warning at the
+start and again at the end of the run log. A weight set without the key, or a
+`--pencl_weights` path other than the one the weight set names, is not checked.
 
 ### Without a Facilitator
 

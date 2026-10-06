@@ -9,6 +9,10 @@ Bundle paths follow the same convention as the rest of the repo's configs:
 relative paths resolve against the working directory (run from the repo root),
 absolute paths are used as-is. The bundle itself supports config composition
 via ``load_json_config``.
+
+A bundle can also record how its PenCL weights were trained, under
+``pencl_trained_with_text_attention_mask`` (true or false), so a run can be
+checked against it.
 """
 
 from __future__ import annotations
@@ -16,6 +20,7 @@ from __future__ import annotations
 from biom3.core.helpers import load_json_config
 
 WEIGHT_KEYS = ("pencl_weights", "facilitator_weights", "proteoscribe_weights")
+PENCL_MASK_KEY = "pencl_trained_with_text_attention_mask"
 
 
 def load_weight_set(path):
@@ -41,3 +46,26 @@ def merge_weight_set(args, weight_set_path, keys):
         current = getattr(args, key, None)
         if current in (None, "None") and bundle.get(key):
             setattr(args, key, bundle[key])
+
+
+def pencl_trained_with_mask(weight_set_path, pencl_weights=None):
+    """Whether a bundle records PenCL as trained with the caption attention mask.
+
+    Returns the bundle's ``pencl_trained_with_text_attention_mask`` value, or
+    None when nothing can be said: no bundle, no such key, or ``pencl_weights``
+    is not the PenCL file the bundle names.
+    """
+    if not weight_set_path or str(weight_set_path) == "None":
+        return None
+    cfg = load_json_config(weight_set_path)
+    value = cfg.get(PENCL_MASK_KEY)
+    if value is None:
+        return None
+    if not isinstance(value, bool):
+        raise ValueError(
+            f"{PENCL_MASK_KEY} in {weight_set_path} must be true or false, "
+            f"got {value!r}"
+        )
+    if pencl_weights is not None and pencl_weights != cfg.get("pencl_weights"):
+        return None
+    return value

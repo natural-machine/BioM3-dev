@@ -7,8 +7,8 @@ intermediate file paths automatically from --output_dir and --prefix.
 
 With --generate the terminal step is ProteoScribe sampling instead of HDF5
 compilation, giving CSV → Stage 1 → Stage 2 → Stage 3 generated sequences.
-With --skip_facilitator the pipeline stops after Stage 1, for weight sets that
-have no Facilitator.
+With --skip_facilitator Stage 2 is replaced by the identity map, z_c = z_t, for
+weight sets that have no Facilitator.
 Running this entrypoint under a launcher (scripts/launchers/*_{single,multi}node.sh)
 shards the work: Stage 1 splits batches across ranks and merges on rank 0,
 Stage 2 and the HDF5 compile run on rank 0 alone, and the Stage 3 sampler
@@ -20,6 +20,8 @@ import os
 import sys
 from argparse import Namespace
 from datetime import datetime
+
+import torch
 
 from biom3.backend.device import setup_logger
 from biom3.backend.device import DEVICE_CHOICES, resolve_device
@@ -73,9 +75,9 @@ def parse_arguments(args):
     )
     parser.add_argument(
         "--skip_facilitator", action="store_true", default=False,
-        help="Run Stage 1 only: write <prefix>.PenCL_emb.pt, the run log and "
-             "the manifest, with no Stage 2 and no HDF5. Facilitator config and "
-             "weights are not needed. Cannot be combined with --generate"
+        help="Replace Stage 2 with the identity map: z_c is written as a copy "
+             "of z_t, and the remaining steps run as usual. Facilitator config "
+             "and weights are not needed"
     )
     parser.add_argument(
         "--prefix", type=str, required=True,
@@ -178,8 +180,6 @@ def parse_arguments(args):
     )
     parsed = parser.parse_args(args)
 
-    if parsed.skip_facilitator and parsed.generate:
-        parser.error("--skip_facilitator cannot be combined with --generate")
     if not parsed.skip_facilitator and not parsed.facilitator_config:
         parser.error("--facilitator_config is required unless --skip_facilitator is given")
 
@@ -222,6 +222,13 @@ def _build_stage3_argv(args, input_path, output_path):
     return argv
 
 
+def _write_identity_zc(pencl_output, facilitator_output):
+    """Stand in for Stage 2 with the identity map: z_c is a copy of z_t."""
+    embedding_dataset = torch.load(pencl_output, weights_only=False)
+    embedding_dataset["z_c"] = embedding_dataset["z_t"].clone()
+    torch.save(embedding_dataset, facilitator_output)
+
+
 def main(args):
     args.device = resolve_device(args.device)
     from biom3.Stage1.run_PenCL_inference import (
@@ -247,13 +254,11 @@ def main(args):
     try:
         start_time = datetime.now()
         logger.info("=" * 60)
-        if args.skip_facilitator:
-            logger.info("Embedding pipeline (Stage 1 only)")
-        else:
-            logger.info(
-                "Embedding pipeline (Stage 1 -> Stage 2 -> %s)",
-                "Stage 3" if args.generate else "HDF5",
-            )
+        logger.info(
+            "Embedding pipeline (Stage 1 -> %s -> %s)",
+            "identity" if args.skip_facilitator else "Stage 2",
+            "Stage 3" if args.generate else "HDF5",
+        )
         logger.info("biom3 version: %s (git: %s)", get_biom3_version(), get_git_hash())
         logger.info("Command:     %s", " ".join(sys.argv))
         logger.info("=" * 60)
@@ -296,7 +301,12 @@ def main(args):
         # --- Stage 2: Facilitator sampling ---
         # Main rank only: the Facilitator is a small MLP, so there is nothing to gain
         # from sharding it, and every rank writing the same file would race.
-        if not args.skip_facilitator and is_main_process():
+        if args.skip_facilitator and is_main_process():
+            logger.info("=" * 60)
+            logger.info("Stage 2 skipped: z_c is a copy of z_t")
+            logger.info("=" * 60)
+            _write_identity_zc(pencl_output, facilitator_output)
+        elif is_main_process():
             logger.info("=" * 60)
             logger.info("Stage 2: Facilitator sampling")
             logger.info("=" * 60)
@@ -312,9 +322,7 @@ def main(args):
             run_stage2(stage2_args, _setup_logging=False)
         barrier()
 
-        if args.skip_facilitator:
-            final_output = pencl_output
-        elif args.generate:
+        if args.generate:
             # --- Stage 3: ProteoScribe sampling ---
             from biom3.Stage3.run_ProteoScribe_sample import (
                 parse_arguments as parse_stage3_args,
@@ -350,7 +358,10 @@ def main(args):
 
         # Write manifest
         elapsed = datetime.now() - start_time
-        outputs = {"pencl_output": os.path.abspath(pencl_output)}
+        outputs = {
+            "pencl_output": os.path.abspath(pencl_output),
+            "facilitator_output": os.path.abspath(facilitator_output),
+        }
         resolved_paths = {
             "input_data_path": os.path.abspath(args.input_data_path),
             "weight_set": os.path.abspath(args.weight_set) if args.weight_set else None,
@@ -359,17 +370,16 @@ def main(args):
         }
         config_contents = {"pencl": pencl_config_contents}
         if not args.skip_facilitator:
-            outputs["facilitator_output"] = os.path.abspath(facilitator_output)
             resolved_paths["facilitator_weights"] = os.path.abspath(args.facilitator_weights)
             resolved_paths["facilitator_config"] = os.path.abspath(args.facilitator_config)
             config_contents["facilitator"] = facilitator_config_contents
-            if not args.generate:
-                outputs["hdf5_output"] = os.path.abspath(hdf5_output)
         if args.generate:
             outputs["generated_output"] = os.path.abspath(generated_output)
             resolved_paths["proteoscribe_weights"] = os.path.abspath(args.proteoscribe_weights)
             resolved_paths["proteoscribe_config"] = os.path.abspath(args.proteoscribe_config)
             config_contents["proteoscribe"] = load_json_config(args.proteoscribe_config)
+        else:
+            outputs["hdf5_output"] = os.path.abspath(hdf5_output)
 
         write_manifest(
             args, args.output_dir, start_time, elapsed,

@@ -144,7 +144,8 @@ def test_pipeline_hands_the_flag_to_stage1(tmp_path, monkeypatch, extra, expecte
 
     def fake_stage1(args, _setup_logging=True):
         seen.append(args.text_attention_mask)
-        torch.save({}, args.output_path)
+        torch.save({"z_t": torch.zeros(1, 2), "sequence": ["MK"], "acc_id": ["P1"]},
+                   args.output_path)
 
     monkeypatch.setattr(stage1_mod, "main", fake_stage1)
 

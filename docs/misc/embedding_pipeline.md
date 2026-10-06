@@ -51,15 +51,15 @@ biom3_embedding_pipeline \
 | `--float32_matmul_precision` | config (`high`) | Stage 1 fp32 matmul precision; pair `highest` with `--no_amp` for a deterministic fp32 pass |
 | `--mmd_sample_limit` | `1000` | Sample limit for MMD in Stage 2 |
 | `--dataset_key` | `MMD_data` | HDF5 group name |
-| `--skip_facilitator` | off | Run Stage 1 only; see below |
+| `--skip_facilitator` | off | Replace Stage 2 with the identity map (`z_c` = `z_t`); see below |
 
-### Stage 1 only
+### Without a Facilitator
 
-Some PenCL weight sets have no Facilitator. With `--skip_facilitator` the pipeline
-stops after Stage 1: it writes the PenCL embeddings, the run log and the manifest,
-and runs neither Stage 2 nor the HDF5 compilation. The Facilitator config and
-weights are not needed, so a weight set holding only `pencl_weights` is accepted.
-It cannot be combined with `--generate`.
+Some PenCL weight sets have no Facilitator. With `--skip_facilitator` the text
+embeddings pass through the identity map in place of Stage 2: `z_c` is written as
+a copy of `z_t`, and the HDF5 compilation (or Stage 3 with `--generate`) runs on
+it as usual. The Facilitator config and weights are not needed, so a weight set
+holding only `pencl_weights` is accepted.
 
 ```bash
 biom3_embedding_pipeline \
@@ -81,7 +81,8 @@ Given `--output_dir outputs --prefix mydata`, the pipeline produces:
 - `outputs/mydata.build_manifest.json` -- arguments, weights, and configs used
 - `outputs/mydata.run.log` -- the run's console output
 
-With `--skip_facilitator`, the Facilitator and HDF5 files are not written.
+With `--skip_facilitator` the same files are written. `z_c` in
+`mydata.Facilitator_emb.pt`, and so the embedding in the HDF5, is a copy of `z_t`.
 
 ## Standalone HDF5 Compilation
 

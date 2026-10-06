@@ -240,7 +240,7 @@ Runs `biom3_PenCL_inference` → `biom3_Facilitator_sample` → HDF5 compilation
 | `--cross_comparison_sample_limit` | int | 0 | Forwarded to Stage 1. `0` = skip the O(n²) cross-comparison metrics (default), `-1` = all, positive = that many. **Print-only**. |
 | `--mmd_sample_limit` | int | 1000 | Stage 2 MMD sample cap. |
 | `--dataset_key` | str | `MMD_data` | HDF5 group name for the compiled output. |
-| `--skip_facilitator` | flag | False | Run Stage 1 only, for weight sets with no Facilitator. Writes `<prefix>.PenCL_emb.pt`, the run log and the manifest; no Stage 2 and no HDF5. Cannot be combined with `--generate`. |
+| `--skip_facilitator` | flag | False | Replace Stage 2 with the identity map, for weight sets with no Facilitator: `z_c` is written to `<prefix>.Facilitator_emb.pt` as a copy of `z_t`, and the HDF5 compile (or Stage 3 with `--generate`) runs on it as usual. |
 
 #### Optional arguments — Stage 3 generation
 

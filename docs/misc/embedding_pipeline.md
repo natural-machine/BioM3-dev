@@ -32,16 +32,16 @@ biom3_embedding_pipeline \
 | `-i`, `--input_data_path` | Input CSV with sequences and text prompts |
 | `-o`, `--output_dir` | Directory for all output files |
 | `--pencl_weights` | Path to PenCL model weights (`.ckpt` or `.bin`) |
-| `--facilitator_weights` | Path to Facilitator model weights |
+| `--facilitator_weights` | Path to Facilitator model weights (not needed with `--skip_facilitator`) |
 | `--pencl_config` | Stage 1 JSON config file |
-| `--facilitator_config` | Stage 2 JSON config file |
+| `--facilitator_config` | Stage 2 JSON config file (not needed with `--skip_facilitator`) |
 | `--prefix` | Filename prefix for output files |
 
 ### Optional arguments
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--device` | `cuda` | Device for inference (`cpu`, `cuda`, `xpu`) |
+| `--device` | `auto` | Device for inference (`auto`, `cpu`, `cuda`, `xpu`); `auto` picks the detected backend |
 | `--batch_size` | `256` | Batch size for Stage 1 |
 | `--num_workers` | `0` | Dataloader workers for Stage 1 |
 | `--cross_comparison_sample_limit` | `0` | Stage 1 O(n²) cross-comparison metrics: `0` skips them, `-1` uses all, positive uses that many. Print-only; embeddings unaffected |
@@ -49,6 +49,25 @@ biom3_embedding_pipeline \
 | `--float32_matmul_precision` | config (`high`) | Stage 1 fp32 matmul precision; pair `highest` with `--no_amp` for a deterministic fp32 pass |
 | `--mmd_sample_limit` | `1000` | Sample limit for MMD in Stage 2 |
 | `--dataset_key` | `MMD_data` | HDF5 group name |
+| `--skip_facilitator` | off | Run Stage 1 only; see below |
+
+### Stage 1 only
+
+Some PenCL weight sets have no Facilitator. With `--skip_facilitator` the pipeline
+stops after Stage 1: it writes the PenCL embeddings, the run log and the manifest,
+and runs neither Stage 2 nor the HDF5 compilation. The Facilitator config and
+weights are not needed, so a weight set holding only `pencl_weights` is accepted.
+It cannot be combined with `--generate`.
+
+```bash
+biom3_embedding_pipeline \
+    -i data/dataset_with_prompts.csv \
+    -o outputs/embeddings \
+    --weight_set path/to/pencl_only_weight_set.json \
+    --pencl_config configs/inference/stage1_PenCL.json \
+    --prefix my_dataset \
+    --skip_facilitator
+```
 
 ### Output files
 
@@ -59,6 +78,8 @@ Given `--output_dir outputs --prefix mydata`, the pipeline produces:
 - `outputs/mydata.compiled_emb.hdf5` -- final HDF5 for finetuning
 - `outputs/mydata.build_manifest.json` -- arguments, weights, and configs used
 - `outputs/mydata.run.log` -- the run's console output
+
+With `--skip_facilitator`, the Facilitator and HDF5 files are not written.
 
 ## Standalone HDF5 Compilation
 

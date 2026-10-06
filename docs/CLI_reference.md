@@ -219,9 +219,9 @@ Runs `biom3_PenCL_inference` → `biom3_Facilitator_sample` → HDF5 compilation
 | `-i`, `--input_data_path` | str | Path to input CSV (sequences + prompts). |
 | `-o`, `--output_dir` | str | Directory for all output files. |
 | `--pencl_weights` | str | Path to PenCL weights or checkpoint. |
-| `--facilitator_weights` | str | Path to Facilitator weights or checkpoint. |
+| `--facilitator_weights` | str | Path to Facilitator weights or checkpoint. Not needed with `--skip_facilitator`. |
 | `--pencl_config` | str | Path to Stage 1 JSON config. |
-| `--facilitator_config` | str | Path to Stage 2 JSON config. |
+| `--facilitator_config` | str | Path to Stage 2 JSON config. Not needed with `--skip_facilitator`. |
 | `--prefix` | str | Filename prefix for intermediate and final output files, the run log (`<prefix>.run.log`), and the manifest (`<prefix>.build_manifest.json`). |
 
 #### Optional arguments
@@ -236,6 +236,7 @@ Runs `biom3_PenCL_inference` → `biom3_Facilitator_sample` → HDF5 compilation
 | `--cross_comparison_sample_limit` | int | 0 | Forwarded to Stage 1. `0` = skip the O(n²) cross-comparison metrics (default), `-1` = all, positive = that many. **Print-only**. |
 | `--mmd_sample_limit` | int | 1000 | Stage 2 MMD sample cap. |
 | `--dataset_key` | str | `MMD_data` | HDF5 group name for the compiled output. |
+| `--skip_facilitator` | flag | False | Run Stage 1 only, for weight sets with no Facilitator. Writes `<prefix>.PenCL_emb.pt`, the run log and the manifest; no Stage 2 and no HDF5. Cannot be combined with `--generate`. |
 
 #### Optional arguments — Stage 3 generation
 

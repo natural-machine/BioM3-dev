@@ -75,7 +75,7 @@ Produces joint protein/text embeddings (`z_p`, `z_t`) from a CSV of (sequence, p
 |---|---|---|
 | `-i`, `--input_data_path` | str | Path to input CSV (sequences + prompts). Pass `None` to use the built-in test dataset. |
 | `-c`, `--config_path` | str | Path to JSON config (e.g. `configs/inference/stage1_PenCL.json`). |
-| `-m`, `--model_path` | str | Path to pretrained PenCL weights (`.bin`) or Lightning checkpoint (`.ckpt`). |
+| `-m`, `--model_path` | str | Path to pretrained PenCL weights: a raw state dict or a Lightning checkpoint. The format is read from the file, not its extension, and the run stops if any model parameter is not found in it. |
 | `-o`, `--output_path` | str | Path to write output embeddings (`.pt`). |
 
 #### Optional arguments
@@ -85,7 +85,7 @@ Produces joint protein/text embeddings (`z_p`, `z_t`) from a CSV of (sequence, p
 | `--device` | str | `auto` | One of `auto`, `cpu`, `cuda`, `xpu`. `auto` = the detected backend: CUDA, then XPU, else CPU. |
 | `--batch_size` | int | 32 | Inference batch size. |
 | `--num_workers` | int | 0 | DataLoader worker count. |
-| `--load_from_checkpoint` | flag | False | Force loading `model_path` as a Lightning `.ckpt` (otherwise inferred from extension). |
+| `--load_from_checkpoint` | flag | False | Kept for compatibility; it no longer changes how weights load. With it, or with a `.ckpt` path, the network class follows the config's `model_type`. |
 | `--no_amp` | flag | False | Disable autocast and run the forward pass in fp32. Autocast (bf16 on xpu, fp16 on cuda) is on by default. bf16 rounding depends on tensor shape, so results vary slightly with batch size; pair `--no_amp` with `--float32_matmul_precision highest` when comparing runs. |
 | `--cross_comparison_sample_limit` | int | 0 | Samples used for the O(n²) cross-comparison metrics (dot-product probabilities, homology matrix). `0` = skip entirely (default), `-1` = all, positive = that many. Each metric allocates an n×n fp32 matrix (~25 GB at n=80k), so `-1` is only safe on small datasets. **Print-only** — saved embeddings are unaffected. |
 

@@ -63,8 +63,7 @@ from functools import partial
 
 import biom3.Stage1.preprocess as prep
 import biom3.Stage1.model as mod
-import biom3.Stage1.PL_wrapper as PL_wrap
-from biom3.core.io import load_and_prepare_model
+from biom3.Stage1.io import load_pencl_weights
 from biom3.core.helpers import load_json_config, convert_to_namespace
 from biom3.core.run_utils import (
     get_biom3_version,
@@ -104,8 +103,11 @@ def parse_arguments(args):
     parser.add_argument('--num_workers', type=int, default=0,
                         help="number of dataloading workers")
     parser.add_argument("--load_from_checkpoint", action="store_true",
-                        help="Flag to load model_path as a checkpoint. By default, " \
-                        "this action is inferred from a .ckpt extension of model_path")
+                        help="Kept for compatibility. Whether model_path is a raw "
+                             "state dict or a Lightning checkpoint is read from the "
+                             "file itself, so this no longer changes how weights "
+                             "load. With it, or with a .ckpt path, the network "
+                             "class follows the config's model_type.")
     parser.add_argument("--cross_comparison_sample_limit", type=int, default=0,
                         help="Number of samples used for the O(n^2) cross-comparison "
                              "metrics (dot-product probabilities, homology matrix). "
@@ -161,13 +163,9 @@ def prepare_model_from_raw_weights(
     ) -> nn.Module:
     """Prepare a model from raw weight file (e.g. .bin or .pt)"""
     model = mod.pfam_PEN_CL(args=config_args)
-    model = load_and_prepare_model(
-        model, model_path, 
-        device=device, 
-        strict=False,  # NOTE: Avoids issue.
-        eval_mode=True,
-        attempt_correction=False,
-    )
+    load_pencl_weights(model, model_path, device=device)
+    model.to(device)
+    model.eval()
     return model
 
 
@@ -191,41 +189,9 @@ def prepare_model_from_checkpoint(
     model = model_class(args=config_args).to(device)
     model.eval()
 
-    # Decide on PL wrapper
-    PL_wrapper_options = {
-            'default': PL_wrap.PL_PEN_CL,
-            'masked': PL_wrap.mask_PL_PEN_CL,
-            'pfam': PL_wrap.pfam_PL_PEN_CL,
-            'pfam_ablated': PL_wrap.pfam_PL_PEN_CL
-    }
-    PL_wrapper_class = PL_wrapper_options.get(
-        config_args.model_type, PL_wrap.PL_PEN_CL
-    )
-    logger.info('PL wrapper class: %s', PL_wrapper_class)
-    
-    # Get PL model
-    PL_model = PL_wrapper_class(
-        args=config_args,
-        model=model,
-        text_tokenizer=model.text_encoder.tokenizer,
-        sequence_tokenizer=model.protein_encoder.alphabet
-    )
-    
     # Load pretrained weights
     logger.info('Loading weights from checkpoint...')
-    PL_model = PL_wrapper_class.load_from_checkpoint(
-        checkpoint_path=model_path,
-        map_location=device,
-        args=config_args,
-        model=model,
-        text_tokenizer=model.text_encoder.tokenizer,
-        sequence_tokenizer=model.protein_encoder.alphabet,
-        strict=False
-    )
-    # x = torch.load(model_path)
-    # print(x["state_dict"]["model.text_encoder.model.bert.embeddings.position_ids"])
-
-    model = PL_model.model
+    load_pencl_weights(model, model_path, device=device)
     return model
 
 

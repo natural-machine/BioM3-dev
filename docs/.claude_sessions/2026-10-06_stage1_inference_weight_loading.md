@@ -13,9 +13,12 @@ embedding pipeline. All four were checked against `dev` and confirmed before any
 
 1. **Stage 1 inference could embed with weights that never loaded.** Fixed.
 2. **The pipeline could not run a PenCL weight set that has no Facilitator.** Added
-   `--skip_facilitator`.
+   `--skip_facilitator`, which replaces Stage 2 with the identity map: `z_c` is written as
+   a copy of `z_t` and the rest of the pipeline runs on it.
 3. **Inference never passed the caption attention mask to BERT**, although Stage 1 pfam
    training has since `ef43803` (2026-09-09). Added `--text_attention_mask`, off by default.
+   A weight set can record how its PenCL was trained, and the pipeline warns loudly when
+   the flag disagrees with that record.
 4. **Two weight files in the main Aurora checkout are Lightning checkpoints under a `.bin`
    name.** Not changed: the files are read-only and replacing them is the user's decision.
    With fix 1 the PenCL one now loads correctly anyway.
@@ -54,7 +57,24 @@ network class from the config's `model_type`; it no longer changes how weights l
 | `da524c6` | `fix:` `load_pencl_weights` in `Stage1/io.py`; both paths in `run_PenCL_inference.py` use it; 14 tests |
 | `458897c` | `feat:` `--skip_facilitator` in `pipeline/embedding_pipeline.py`; 4 tests |
 | `a1a43ec` | `feat:` `--text_attention_mask` through `preprocess.collate_fn(include_mask=...)`, Stage 1 inference and the pipeline; 10 tests |
-| this commit | `docs:` `emb` pass criterion and open item 17 in `container_validation.md`; this note |
+| `f0ea58f` | `docs:` `emb` pass criterion and open item 17 in `container_validation.md`; this note |
+| `a389295` | `feat:` `--skip_facilitator` writes `z_c` as a copy of `z_t` and keeps the HDF5 compile and `--generate` |
+| `46121cd` | `feat:` `pencl_trained_with_text_attention_mask` in weight sets; mismatch warning in the pipeline; 14 tests |
+
+`458897c` first made `--skip_facilitator` stop after Stage 1, as the handoff asked. The user
+then asked for the identity map instead, so that `z_c` is always populated; `a389295` is that
+change, and it also lifts the rule that rejected the flag together with `--generate`.
+
+## The mask and the weight set
+
+`--text_attention_mask` (default off) is the only thing that decides whether a run passes the
+mask. A weight set can record how its PenCL was trained under
+`pencl_trained_with_text_attention_mask`; `run0_nm_base` and `run1_base` record `false`. When
+the flag disagrees with the record the run still follows the flag, and the pipeline logs a
+`CAPTION ATTENTION MASK DOES NOT MATCH THE WEIGHTS` banner at the start and again at the end
+of the run log. Nothing is checked when the weight set has no such key, when
+`--pencl_weights` names a file other than the weight set's, or when `biom3_PenCL_inference`
+is run directly, since it does not read a weight set.
 
 ## Verification
 
@@ -88,14 +108,27 @@ Job 8906650, mask and pipeline, 64 rows, fp32 (`--no_amp --float32_matmul_precis
 is off by default: `run1_base` was trained without the mask, and turning it on moves `z_t` a
 long way.
 
-The same job ran the pipeline with `--skip_facilitator` on a weight set holding only
-`pencl_weights` (three files written, no Stage 2, manifest lists only `pencl_output`),
-confirmed that weight set is refused without the flag, ran the full pipeline, and ran the
-tests: Stage 1 inference and pipeline tests 52 passed, 4 skipped (no CUDA);
-`pytest tests --quick` 1465 passed, 180 skipped.
+The same job confirmed that a weight set holding only `pencl_weights` is refused without
+`--skip_facilitator`, ran the full pipeline, and ran the tests: Stage 1 inference and
+pipeline tests 52 passed, 4 skipped (no CUDA); `pytest tests --quick` 1465 passed, 180
+skipped.
 
-The loader tests fail on the old code (8 of the 9 `prepare_model` cases). `da524c6` and
-`458897c` were each checked on their own tree with the stub-based tests.
+Job 8906769, identity map and mask warning, at `46121cd`:
+
+| Check | Result |
+| ----- | ------ |
+| `--skip_facilitator`, 64 rows | `z_c` equal to `z_t`, in separate storage; the HDF5 embedding equal to `z_t`; 64 rows |
+| full pipeline, 64 rows | `z_c` differs from `z_t`, and is bit-identical to the run before these changes |
+| `--skip_facilitator --generate`, 5 rows | Stage 3 samples from the copy and writes `run.generated.pt` |
+| flag on, weight set records `false` | banner logged twice |
+| flag off, weight set records `true` | banner logged twice |
+| flag agrees with the weight set | no banner |
+
+Tests in that job: pipeline and Stage 1 inference tests 62 passed, 4 skipped (no CUDA);
+`pytest tests --quick` 1479 passed, 180 skipped.
+
+The loader tests fail on the old code (8 of the 9 `prepare_model` cases). `da524c6`,
+`458897c` and `a389295` were each checked on their own tree with the stub-based tests.
 
 ## Open items
 
@@ -108,10 +141,7 @@ The loader tests fail on the old code (8 of the 9 `prepare_model` cases). `da524
    `au2-emb.pre-4ea2435` on Aurora, and anything downstream of them.
 3. **Rebuild the images.** The changes are in `src/`, so `xpu-oneapi-abd9941` and the other
    published images still have the loading bug.
-4. **Record the mask setting with the weights?** It is a property of how a weight set was
-   trained, but today it is a flag the caller has to know to pass. A key in the weight-set
-   JSON would remove that. Not done: it is a design decision.
-5. **The mask in the other caption paths.** `Stage3/finetune_embedder.py:52` and
+4. **The mask in the other caption paths.** `Stage3/finetune_embedder.py:52` and
    `rl/grpo.py:138` also embed captions without the mask. That is right for `run1_base`
    and wrong for weights trained with the mask. Left alone: they need the same option
    before they are used with such weights.
@@ -119,8 +149,8 @@ The loader tests fail on the old code (8 of the 9 `prepare_model` cases). `da524
 ## Reverting
 
 ```bash
-git revert a1a43ec 458897c da524c6
+git revert 46121cd a389295 a1a43ec 458897c da524c6
 ```
 
-The three commits are independent in content, except that one test in `a1a43ec` uses
-`--skip_facilitator` from `458897c`.
+The loader fix `da524c6` stands on its own. The later commits build on each other in the
+order given.

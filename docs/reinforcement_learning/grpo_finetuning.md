@@ -69,7 +69,9 @@ GRPO uses the standard `core.helpers.load_json_config` composition.
 defaults; experiment configs overlay it via `_base_configs`. Precedence
 (low → high) is `_base_configs` < current file < `_overwrite_configs` < CLI.
 
-Required fields (must end up resolved by the time the trainer starts):
+Required fields (must end up resolved by the time the trainer starts). The three weight
+paths are required: a missing path, or a file that does not populate its model, stops
+the run.
 
 | Field | What |
 |---|---|

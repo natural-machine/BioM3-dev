@@ -11,6 +11,7 @@ from typing import Optional
 import torch.nn as nn
 
 import biom3.Stage1.model as S1mod
+from biom3.Stage1.io import load_pencl_weights
 from biom3.Stage3.io import prepare_model_ProteoScribe
 from biom3.core.distributed import is_main_process
 from biom3.core.io import load_state_dict_unwrap_pl as _load_state_dict_unwrap_pl
@@ -67,17 +68,17 @@ def configure_conditioning(args, cfg1):
     return warning
 
 
-def _attach(model: nn.Module, sd: Optional[dict], device, eval_mode: bool):
-    if sd is not None:
-        missing, unexpected = model.load_state_dict(sd, strict=False)
-        if missing:
-            logger.warning("missing keys (%d): %s ...", len(missing), missing[:3])
-        if unexpected:
-            logger.warning("unexpected keys (%d): %s ...", len(unexpected), unexpected[:3])
+def _require_weights(weights_path, name, consequence):
+    if not weights_path or str(weights_path) == "None":
+        raise ValueError(f"{name} is required: without it {consequence}.")
+
+
+def _freeze(model: nn.Module, device) -> nn.Module:
     if device is not None:
         model.to(device)
-    if eval_mode:
-        model.eval()
+    model.eval()
+    for p in model.parameters():
+        p.requires_grad_(False)
     return model
 
 
@@ -86,12 +87,11 @@ def load_pencl_frozen(
     weights_path: Optional[str],
     device: Optional[str] = None,
 ) -> nn.Module:
+    _require_weights(weights_path, "stage1_weights",
+                     "prompts would be embedded by an untrained PenCL")
     model = S1mod.pfam_PEN_CL(args=cfg)
-    sd = _load_state_dict_unwrap_pl(weights_path, device=device) if weights_path else None
-    model = _attach(model, sd, device=device, eval_mode=True)
-    for p in model.parameters():
-        p.requires_grad_(False)
-    return model
+    load_pencl_weights(model, weights_path, device=device)
+    return _freeze(model, device)
 
 
 def load_facilitator_frozen(
@@ -99,17 +99,28 @@ def load_facilitator_frozen(
     weights_path: Optional[str],
     device: Optional[str] = None,
 ) -> nn.Module:
+    _require_weights(weights_path, "stage2_weights",
+                     "z_c would come from an untrained Facilitator")
     model = S1mod.Facilitator(
         in_dim=cfg.emb_dim,
         hid_dim=cfg.hid_dim,
         out_dim=cfg.emb_dim,
         dropout=cfg.dropout,
     )
-    sd = _load_state_dict_unwrap_pl(weights_path, device=device) if weights_path else None
-    model = _attach(model, sd, device=device, eval_mode=True)
-    for p in model.parameters():
-        p.requires_grad_(False)
-    return model
+    sd = _load_state_dict_unwrap_pl(weights_path, device=device)
+    missing, unexpected = model.load_state_dict(sd, strict=False)
+    if missing:
+        raise RuntimeError(
+            f"Facilitator weights at {weights_path} did not populate "
+            f"{len(missing)}/{len(model.state_dict())} tensors (e.g. {missing[:5]}). "
+            f"File keys look like {sorted(sd)[:3]}."
+        )
+    if unexpected:
+        logger.warning(
+            "Facilitator: %d key(s) in %s are not used by the model: %s",
+            len(unexpected), weights_path, unexpected[:5],
+        )
+    return _freeze(model, device)
 
 
 def load_proteoscribe_trainable(
@@ -117,6 +128,8 @@ def load_proteoscribe_trainable(
     weights_path: Optional[str],
     device: Optional[str] = None,
 ) -> nn.Module:
+    _require_weights(weights_path, "stage3_init_weights",
+                     "the policy would start from a randomly initialised ProteoScribe")
     model = prepare_model_ProteoScribe(
         config_args=cfg,
         model_fpath=weights_path,

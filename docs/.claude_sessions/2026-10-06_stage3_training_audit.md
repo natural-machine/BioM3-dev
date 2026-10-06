@@ -106,7 +106,26 @@ real scheduler gives, as a fraction of the peak rate at the start of each epoch:
 | new length | 0.000 | 1.000 | 0.895 | 0.541 | 0.161 | 0.007 | 0.000 | 0.500 |
 
 With the old length the warmup alone was 256 epochs, so the run would have ended at 7.8% of
-the peak without ever decaying.
+the peak without ever decaying. The zero at epoch 0 is the first step only: the rate climbs
+linearly through the first epoch.
+
+### What past multi-node Stage 3 runs did
+
+Lightning's `LearningRateMonitor` logged the rate in each run's `logs/lightning_logs`. For
+three generalized finetunes under `outputs/Stage3/` in the main Aurora checkout:
+
+| Run | Warmup built for | Run length | Logged mid-run | Logged at the last step |
+| --- | ---------------- | ---------- | -------------- | ----------------------- |
+| 64 nodes x 12, 50 epochs (`..._n64_d12_e50_V20260702_232126`) | 289 steps | 250 steps | 5.2e-5, still rising | 8.6e-5; never reached the 1e-4 peak |
+| 16 nodes x 12, 300 epochs (`..._sh3_prod_n16_d12_e300_V20260703_213155`) | 126 steps | 2,400 steps | 9.98e-5 | 9.91e-5 (99.1% of peak) |
+| 16 nodes x 12, 3000 epochs (`..._sh3_prod_n16_d12_e3000_V20260703_224952`) | 126 steps | 24,000 steps | 1.382e-3 | 1.372e-3 (99.0% of peak) |
+
+Stepping the real scheduler with those old lengths reproduces every logged value. So
+multi-node runs trained with a long warmup and then an almost constant rate; single-node
+runs, where the old length was right, did decay. With the new length the same runs warm up
+over one epoch (5 to 8 steps) and decay to zero by the last step. That is a change in how
+multi-node runs train, not only in what the log says. The user reviewed this comparison and
+kept the fix as it is.
 
 ## Open items
 
@@ -115,7 +134,8 @@ the peak without ever decaying.
 2. **RL weight loading is non-strict.** `rl/io.py::_attach` only warns on missing keys, and
    a missing `stage1_weights` builds an untrained PenCL.
 3. **`--warmup_steps` is not used.** It is documented as the cosine warmup length, but the
-   schedule always warms up over one epoch.
+   schedule always warms up over one epoch. On many ranks one epoch is only a few steps (5
+   on the 64-node run above), so wiring this argument in would make the warmup explicit.
 4. **Step-based training** (`training_strategy=combine`) runs to `max_steps` while the
    schedule is still sized from `epochs`.
 5. **Stage 1 has no learning-rate schedule.** If one is wanted for the run2 series, it is a

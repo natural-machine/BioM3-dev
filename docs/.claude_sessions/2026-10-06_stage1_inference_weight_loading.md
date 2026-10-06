@@ -19,9 +19,8 @@ embedding pipeline. All four were checked against `dev` and confirmed before any
    training has since `ef43803` (2026-09-09). Added `--text_attention_mask`, off by default.
    A weight set can record how its PenCL was trained, and the pipeline warns loudly when
    the flag disagrees with that record.
-4. **Two weight files in the main Aurora checkout are Lightning checkpoints under a `.bin`
-   name.** Not changed: the files are read-only and replacing them is the user's decision.
-   With fix 1 the PenCL one now loads correctly anyway.
+4. **Two weight files in the main Aurora checkout were Lightning checkpoints under a `.bin`
+   name.** The user replaced both with the published files; see "Local weights" below.
 
 ## The loading bug
 
@@ -130,18 +129,37 @@ Tests in that job: pipeline and Stage 1 inference tests 62 passed, 4 skipped (no
 The loader tests fail on the old code (8 of the 9 `prepare_model` cases). `da524c6`,
 `458897c` and `a389295` were each checked on their own tree with the stub-based tests.
 
+## Local weights
+
+The real (not symlinked) weight files in the main Aurora checkout were checked against the
+published bundle with `biom3_fetch_weights run1_base -o weights --force --dry_run`, which
+hashes each file against the registry digest and changes nothing.
+
+| File | Finding |
+| ---- | ------- |
+| `PenCL/run1_base_pencl.bin` | 3,918,095,585 bytes, a byte-identical copy of the sharepoint `.ckpt`; published is 3,048,812,529 |
+| `Facilitator/run1_base_facilitator.bin` | 12,618,834 bytes, a byte-identical copy of the sharepoint `.ckpt`; published is 4,203,629 |
+| `ProteoScribe/run1_base_proteoscribe.bin` | matches the published digest |
+| `ProteoScribe/blend_sd142k_ep353_ep59.bin` | not published, so no reference; a bare state dict with ProteoScribe's 223 keys and shapes, all values finite |
+
+Every symlinked file the bundle covers matched. The user then replaced the first two with
+`biom3_fetch_weights run1_base -o weights --force` and set them read-only again; a second
+dry run reports 11 files present and none to fetch. The `.ckpt` symlinks to the sharepoint
+checkpoints are unchanged. `scripts/weights_bundle/bundle_specs/run1_base.json` copies
+`.bin` sources verbatim, so a bundle built from this checkout before the replacement would
+have published Lightning checkpoints as `.bin`.
+
+The published `run1_base_proteoscribe.bin` is not Lightning-wrapped, yet all 223 of its
+keys carry the `model.` prefix. It loads because the shared loader strips the prefix
+whether or not the file is wrapped.
+
 ## Open items
 
-1. **Replace the mislabelled weights in the main Aurora checkout?**
-   `weights/PenCL/run1_base_pencl.bin` (3,918,095,585 bytes; published is 3,048,812,529)
-   and `weights/Facilitator/run1_base_facilitator.bin` (12,618,834; published 4,203,629).
-   Both are read-only. `scripts/weights_bundle/bundle_specs/run1_base.json` reads them, so
-   a bundle built from this checkout would publish Lightning checkpoints as `.bin`.
-2. **Rerun the invalid `emb` outputs**: `outputs/validation/au1-emb`, `au2-emb` and
+1. **Rerun the invalid `emb` outputs**: `outputs/validation/au1-emb`, `au2-emb` and
    `au2-emb.pre-4ea2435` on Aurora, and anything downstream of them.
-3. **Rebuild the images.** The changes are in `src/`, so `xpu-oneapi-abd9941` and the other
+2. **Rebuild the images.** The changes are in `src/`, so `xpu-oneapi-abd9941` and the other
    published images still have the loading bug.
-4. **The mask in the other caption paths.** `Stage3/finetune_embedder.py:52` and
+3. **The mask in the other caption paths.** `Stage3/finetune_embedder.py:52` and
    `rl/grpo.py:138` also embed captions without the mask. That is right for `run1_base`
    and wrong for weights trained with the mask. Left alone: they need the same option
    before they are used with such weights.

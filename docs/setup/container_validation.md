@@ -464,6 +464,8 @@ Per column:
 
    An `emb` output made from such a file is invalid. On Aurora that covers
    `outputs/validation/au1-emb`, `au2-emb` and `au2-emb.pre-4ea2435`, which read a
-   checkout whose `weights/PenCL/run1_base_pencl.bin` is a Lightning checkpoint under a
-   `.bin` name. With the fix that same file loads correctly: its embeddings match the
-   published `run1_base` weights to 2e-6.
+   checkout whose `weights/PenCL/run1_base_pencl.bin` was a Lightning checkpoint under a
+   `.bin` name. With the fix such a file loads correctly: its embeddings match the
+   published `run1_base` weights to 2e-6. That checkout's file was replaced with the
+   published one on 2026-10-06; `biom3_fetch_weights run1_base -o weights --dry_run`
+   reports whether a weights tree matches the published bundle.

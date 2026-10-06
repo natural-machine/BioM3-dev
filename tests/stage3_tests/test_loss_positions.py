@@ -10,9 +10,16 @@ Padding is not masking. The mask token (0) marks positions the model has not
 been shown yet; a pad (23) is the true token at a tail position. An unsampled
 pad is a padding target, a pad that has been sampled is context, and an
 unsampled residue is a sequence target.
+
+The non-pad and pad terms are means over the positions a sequence actually
+contributes. The unsampled positions are drawn from the whole window, so that
+count depends on the sequence's length and on the draw, not on the diffusion
+time: dividing by anything tied to the time alone would make the reported
+per-position loss depend on how long the sequence is.
 """
 
 import json
+import math
 from argparse import Namespace
 
 import pytest
@@ -42,13 +49,6 @@ def test_pads_fill_only_the_tail():
     assert PAD not in tokens[:5] and MASK not in tokens
 
 
-def _old_loss(log_prob, model_input, idx):
-    """The loss over all unsampled positions, as training has always computed it."""
-    summed = helper.log_prob_of_unsampled_locations(log_prob, model_input)
-    weighted = helper.weight_log_prob(summed, idx, log_prob.size(1))
-    return helper.compute_average_loss_for_batch(weighted)
-
-
 def test_terms_on_a_worked_example():
     real = torch.tensor([[START, 2, 3, END, PAD, PAD]])
     # shown to the model: START, the residue at 2 and the last pad; the rest are masked
@@ -58,8 +58,8 @@ def test_terms_on_a_worked_example():
     terms = helper.unsampled_loss_terms(log_prob, model_input, real, PAD)
 
     # unsampled sequence positions: 1 and 3 (the <END>); unsampled padding: 4
-    assert terms['non_pad'].item() == pytest.approx((2.0 + 4.0) / (2 + 1))
-    assert terms['pad'].item() == pytest.approx(5.0 / (1 + 1))
+    assert terms['non_pad'].item() == pytest.approx((2.0 + 4.0) / 2)
+    assert terms['pad'].item() == pytest.approx(5.0 / 1)
 
 
 def test_a_sampled_pad_is_context_not_a_target():
@@ -70,22 +70,58 @@ def test_a_sampled_pad_is_context_not_a_target():
     terms = helper.unsampled_loss_terms(log_prob, every_pad_shown, real, PAD)
 
     assert terms['pad'].item() == 0.0
-    assert terms['non_pad'].item() == pytest.approx(2.0 / 3)
+    assert terms['non_pad'].item() == pytest.approx(2.0 / 2)
 
 
-def test_without_padding_the_non_pad_term_is_the_old_loss():
-    torch.manual_seed(0)
-    batch, length = 4, 12
-    real = torch.randint(START, END + 1, (batch, length))
-    log_prob = -torch.rand(batch, length)
-    idx = torch.tensor([[0], [5], [11], [12]])
-    order = torch.stack([torch.randperm(length) for _ in range(batch)])
-    model_input = torch.where(order < idx, real, torch.zeros_like(real))
+def test_each_sequence_is_divided_by_its_own_count():
+    """Two sequences at the same diffusion time, four positions unsampled in
+    each. The long one has all four on the sequence; the short one has one."""
+    real = torch.tensor([[START, 2, 3, 4, 5, END, PAD, PAD],
+                         [START, 2, END, PAD, PAD, PAD, PAD, PAD]])
+    model_input = torch.tensor([[START, MASK, MASK, MASK, MASK, END, PAD, PAD],
+                                [START, 2, MASK, MASK, MASK, MASK, PAD, PAD]])
+    assert (model_input == MASK).sum(1).tolist() == [4, 4]
+    log_prob = torch.tensor([[0.0, -1.0, -2.0, -3.0, -4.0, 0.0, 0.0, 0.0],
+                             [0.0, 0.0, -6.0, -1.0, -1.0, -1.0, 0.0, 0.0]])
 
     terms = helper.unsampled_loss_terms(log_prob, model_input, real, PAD)
 
-    assert terms['non_pad'].item() == pytest.approx(_old_loss(log_prob, model_input, idx).item())
-    assert terms['pad'].item() == 0.0
+    long_sequence = (1.0 + 2.0 + 3.0 + 4.0) / 4
+    short_sequence = 6.0 / 1
+    assert terms['non_pad'].item() == pytest.approx((long_sequence + short_sequence) / 2)
+    # the long one has no unsampled padding, so only the short one is in the pad term
+    assert terms['pad'].item() == pytest.approx((1.0 + 1.0 + 1.0) / 3)
+
+
+def test_a_sequence_with_nothing_to_predict_is_left_out():
+    real = torch.tensor([[START, 2, END, PAD],
+                         [START, 2, END, PAD]])
+    model_input = torch.tensor([[START, 2, END, MASK],
+                                [START, MASK, END, PAD]])
+    log_prob = torch.full((2, 4), -2.0)
+
+    terms = helper.unsampled_loss_terms(log_prob, model_input, real, PAD)
+
+    assert terms['non_pad'].item() == pytest.approx(2.0)
+    assert terms['pad'].item() == pytest.approx(2.0)
+
+
+@pytest.mark.parametrize("length", [3, 20, 60])
+def test_reported_value_does_not_depend_on_sequence_length(length):
+    """A model that charges the same for every token must report that cost,
+    whatever the sequence length and wherever the diffusion time falls."""
+    torch.manual_seed(length)
+    window, batch, cost = 64, 512, 1.5
+    real = torch.tensor(encode_protein_sequence("A" * length, 8)).repeat(batch, 1)
+    order = torch.stack([torch.randperm(window) for _ in range(batch)])
+    idx = torch.randint(0, window + 1, (batch, 1))
+    model_input = torch.where(order < idx, real, torch.zeros_like(real))
+    log_prob = torch.full((batch, window), -cost)
+
+    terms = helper.unsampled_loss_terms(log_prob, model_input, real, PAD)
+
+    assert terms['non_pad'].item() == pytest.approx(cost)
+    assert terms['pad'].item() == pytest.approx(cost)
 
 
 def test_gradient_reaches_only_the_chosen_targets():
@@ -134,9 +170,10 @@ def test_module_returns_every_term_and_uses_the_chosen_one(args, chosen):
 
     assert sorted(terms) == ['all', 'non_pad', 'pad']
     assert loss is terms[chosen]
-    assert all(torch.isfinite(v) for v in terms.values())
-    # uniform logits: every target costs log(29), so each term is that times count / (count + 1)
-    assert terms['non_pad'].item() < torch.log(torch.tensor(29.0)).item()
+    # uniform logits: every target costs log(29), and each term reports exactly that
+    assert terms['non_pad'].item() == pytest.approx(math.log(29))
+    assert terms['pad'].item() == pytest.approx(math.log(29))
+    assert terms['all'].item() < math.log(29)
 
 
 def test_module_logs_every_term(monkeypatch):

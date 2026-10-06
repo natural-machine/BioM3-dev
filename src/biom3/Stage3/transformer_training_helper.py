@@ -338,10 +338,13 @@ def unsampled_loss_terms(
     token (0) that marks unsampled positions in the model's input, and a pad
     that has already been sampled is context, not a target.
 
-    Each term is the negative log-probability summed over its unsampled
-    positions and divided by their count plus one, then averaged over the batch.
-    That is the normalisation weight_log_prob applies to all positions, so for a
-    sequence with no padding the non-pad term equals the loss over all positions.
+    Each sequence's term is the mean negative log-probability over the
+    positions it actually contributes: its unsampled non-pad positions, or its
+    unsampled pad positions. That count is not a function of the diffusion time.
+    The unsampled positions are drawn from the whole fixed-length window, so how
+    many of them fall on the sequence depends on its length and on the draw, and
+    two sequences at the same diffusion time contribute different numbers. A
+    sequence that contributes none is left out of the batch average.
 
     Args:
         log_prob: Tensor of shape [batch_size, seq_length] containing log probabilities
@@ -359,8 +362,11 @@ def unsampled_loss_terms(
     zeros = torch.zeros_like(log_prob)
     terms = {}
     for name, positions in (('non_pad', unsampled & ~is_pad), ('pad', unsampled & is_pad)):
+        count = positions.sum(1)
         total = torch.where(positions, log_prob, zeros).sum(1)
-        terms[name] = -(total / (positions.sum(1) + 1)).mean()
+        per_sequence = -total / count.clamp(min=1)
+        contributes = count > 0
+        terms[name] = (per_sequence * contributes).sum() / contributes.sum().clamp(min=1)
     return terms
 
 def weight_log_prob(

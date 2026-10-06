@@ -384,9 +384,16 @@ All metrics are logged with `on_step=True, on_epoch=True`. The `{stage}` prefix 
 Every sequence is padded at its tail with pad tokens up to the model's fixed length, so
 most positions of a typical protein are padding. The loss is computed three ways on every
 step and all three are logged: over all unsampled positions, over the non-pad ones (the
-`<START>`, residue and `<END>` tokens) and over the pad ones. Each is the summed negative
-log-probability of its positions divided by their count plus one, averaged over the batch,
-so a sequence with no padding has `loss_non_pad` equal to `loss_all`.
+`<START>`, residue and `<END>` tokens) and over the pad ones.
+
+The diffusion time and the unmasking order are drawn over the whole fixed-length window, so
+some of the positions to predict fall in the padding, and how many fall on the sequence
+depends on its length and on the draw. `loss_non_pad` therefore divides each sequence's
+summed negative log-probability by the number of non-pad positions that sequence actually
+had to predict, not by anything derived from the diffusion time, and averages over the
+sequences that had any; `loss_pad` does the same for pad positions. A model that charges
+the same for every token reports that cost whatever the sequence length. `loss_all` keeps
+its original normalisation, the number of unsampled positions in the window plus one.
 
 Padding is a property of the target, not of the input. The mask token marks the positions
 the model has not been shown; a pad that has already been sampled is context and is in none

@@ -149,8 +149,20 @@ ignore the padded positions. Training now computes three terms on every step:
 
 Padding is decided by the true token and never by the mask token (id 0), which marks what
 the model has not been shown. A pad that has been sampled is context and is in no term.
-Each term divides its summed log-probability by its own count plus one, the convention
-`weight_log_prob` already uses, so with no padding `loss_non_pad` equals `loss_all`.
+`loss_non_pad` and `loss_pad` are means over the positions a sequence actually contributes:
+each sequence's summed negative log-probability is divided by the number of its unsampled
+non-pad (or pad) positions, and the batch value averages the sequences that have any. The
+divisor is not tied to the diffusion time, because the unsampled positions are drawn from
+the whole window and how many fall on the sequence depends on its length and on the draw.
+
+As first merged (`a43e324`) these two terms divided by the count plus one and averaged
+sequences with nothing to predict in as zeros, copying `weight_log_prob`. The user pointed
+out the divisor has to be the number of positions actually considered. With the count plus
+one, a model charging the same for every token read 10% low at 40 residues, 7% at 72, 2.7%
+at 209 and 0.8% at 1,022. Fixed in the commit after `316d48c`; job 8907455 then read
+`run1_base` on matched data at `loss_non_pad` 1.627 (1.58 before), `loss_all` 0.346 and
+`loss_pad` 0.0017, with 722 Stage 3 and RL tests passing. The tables below predate the fix,
+so their `loss_non_pad` values are a few percent low; `loss_all` is unaffected.
 
 `--loss_positions` picks `all` or `non_pad` for the gradients, and `train_loss` /
 `val_loss` report the chosen one. The user leaned towards making `non_pad` the default;
@@ -217,8 +229,8 @@ Job 8907129, full test suite on these changes: 1650 passed, 94 skipped.
 7. **The HDF5 path** has no record of how its `z_c` was made.
 8. The Stage 3 cosine ends at zero, so the last epoch runs below 1% of the peak. That is
    how the schedule is written, not part of this fix.
-9. `weight_log_prob` divides by the number of unsampled positions plus one, where the
-   count itself would be exact. Left as it is, and mirrored in the new terms.
+9. `weight_log_prob`, behind `loss_all`, divides by the number of unsampled positions plus
+   one, where the count itself would be exact. Left as it is; the new terms use the count.
 10. The baked `Stage2_MMD_swissprot_embedding_subset_1000.hdf5` and
     `test_Facilitator_embeddings.pt` carry `z_c` that predates `run1_base`; with them
     `run1_base` generates full-length sequences. Fine for smoke tests, misleading for

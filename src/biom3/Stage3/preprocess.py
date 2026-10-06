@@ -118,6 +118,11 @@ def pad_ends(
     padded_seqs = seqs + ['-']*pad_need
     return padded_seqs
 
+# Index of '-' in create_num_seqs' vocabulary: the token pad_ends appends to the
+# tail of a sequence. It is not the mask token of the diffusion process, which is 0.
+PAD_TOKEN_ID = 23
+
+
 def create_num_seqs(seq_list: list) -> list:
     """
     Convert a protein sequence from amino acid letters to numerical indices.

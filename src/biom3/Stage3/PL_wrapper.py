@@ -137,6 +137,11 @@ class PL_ProtARDM(pl.LightningModule):
         #clone_zero_model(self.model, self.ema_model, zero_stage=3)
         ##self.ema_model = copy.deepcopy(self.model)
 
+    @property
+    def loss_positions(self) -> str:
+        """Which unsampled positions drive the gradients: 'all' or 'non_pad'."""
+        return getattr(self.script_args, 'loss_positions', 'all')
+
     def forward(
             self,
             x: torch.Tensor,
@@ -315,6 +320,7 @@ class PL_ProtARDM(pl.LightningModule):
         else:
             loss = train_tuple[0]
             metrics = train_tuple[1]
+        loss_terms = train_tuple[2] if len(train_tuple) > 2 else {}
 
         # if realization_idx == 0:
         #     if self.global_rank == 0:
@@ -331,6 +337,8 @@ class PL_ProtARDM(pl.LightningModule):
         log_kwargs = dict(on_step=not is_val, on_epoch=True, sync_dist=is_val)
 
         self.log(f"{stage}_loss", loss, prog_bar=True, **log_kwargs)
+        for name, value in loss_terms.items():
+            self.log(f"{stage}_loss_{name}", value, **log_kwargs)
         if len(train_tuple) > 1:
             self.log(f"{stage}_prev_hard_acc",    metrics[0], prog_bar=True, **log_kwargs)
             self.log(f"{stage}_prev_soft_acc",    metrics[1], **log_kwargs)
@@ -495,6 +503,12 @@ class PL_ProtARDM(pl.LightningModule):
         # compute an average loss i.e. negative average log-likelihood over the batch elements
         loss = trainer_tools.compute_average_loss_for_batch(log_prob_weighted)
 
+        # the same loss split by whether the target is padding; one of them drives the gradients
+        loss_terms = {'all': loss}
+        loss_terms.update(trainer_tools.unsampled_loss_terms(
+            log_prob, real_token_masked, real_tokens, prep.PAD_TOKEN_ID))
+        loss = loss_terms[self.loss_positions]
+
         #if 'val' in stage:
         probs = F.softmax(logits, dim=1)
         metrics = self.performance_step(
@@ -504,7 +518,7 @@ class PL_ProtARDM(pl.LightningModule):
                     probs=probs.cpu().float(),
                     conditional_prob=conditional_prob)
 
-        return loss, metrics
+        return loss, metrics, loss_terms
 
 
     @torch.no_grad()

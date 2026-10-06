@@ -228,6 +228,16 @@ def get_args(parser):
                         help='path to a curated train/val/test split manifest '
                              '(from biom3_cluster_split). When set, the random '
                              '80/20 split is bypassed and the test split is held out.')
+    parser.add_argument('--loss_positions', default='all', type=str,
+                        choices=['all', 'non_pad'],
+                        help="unsampled positions whose loss drives the gradients. 'all' "
+                             "(default) includes the padding at the tail of each sequence; "
+                             "'non_pad' counts only the sequence itself (<START>, residues, "
+                             "<END>). Either way all of loss_all, loss_non_pad and loss_pad "
+                             "are computed and logged. Predicting pads is how the model "
+                             "learns where a sequence ends, so 'non_pad' removes that signal; "
+                             "its gradients are also larger, by about the model length over "
+                             "the sequence length")
     # Conditioning blend: y = alpha * z_p + (1 - alpha) * z_c, alpha = weight on z_p
     parser.add_argument('--train_alpha', default='zc', type=str,
                         help="conditioning blend during training. 'zc' (default) "
@@ -1147,6 +1157,9 @@ def apply_arg_type_conversions(args):
     args.pretrained_weights = nonestr_to_none(args.pretrained_weights)
     args.wandb = str_to_bool(args.wandb)
     args.scale_learning_rate = parse_lr_scaling(args.scale_learning_rate)
+    if args.loss_positions not in ('all', 'non_pad'):
+        raise ValueError(
+            f"loss_positions must be 'all' or 'non_pad', got {args.loss_positions!r}")
     args.save_metrics_history = str_to_bool(args.save_metrics_history)
     args.metrics_history_all_ranks_val_loss = str_to_bool(
         args.metrics_history_all_ranks_val_loss

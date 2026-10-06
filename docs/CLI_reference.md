@@ -388,6 +388,7 @@ The argparser is the largest in the project (70+ flags across `get_args`, `get_m
 | `--batch_size` | int | 16 | Per-device batch size. |
 | `--lr` | float | 3e-4 | Base learning rate. |
 | `--scale_learning_rate` | str | `'True'` | Scale LR by world size. |
+| `--loss_positions` | str | `all` | Unsampled positions whose loss drives the gradients: `all`, or `non_pad` for the sequence without its tail padding. `loss_all`, `loss_non_pad` and `loss_pad` are logged either way. See [Loss terms and padding](misc/stage3_training.md#loss-terms-and-padding). |
 | `--precision` | str | `no` | One of `no`, `fp16`, `bf16`, `32`. |
 | `--device` | str | `auto` | One of `auto`, `cpu`, `cuda`, `xpu`. `auto` = the detected GPU backend (CUDA, then XPU); it never falls back to CPU, so pass `cpu` to train on CPU. The run also stops early if `--devices_per_node` exceeds the devices this process can see. |
 | `--devices_per_node` | int | 1 | GPUs/tiles per node. (Deprecated alias: `--gpu_devices`.) |

@@ -176,6 +176,7 @@ The primary config example is `configs/stage3_training/pretrain_scratch_v2.json`
 | `batch_size` | `16` | Mini-batch size per device |
 | `lr` | `3e-4` | Base learning rate |
 | `scale_learning_rate` | `true` | Multiply LR by `num_nodes * devices_per_node` |
+| `loss_positions` | `"all"` | Which unsampled positions drive the gradients: `"all"`, or `"non_pad"` for the sequence without its padding. See [Loss terms and padding](#loss-terms-and-padding) |
 | `scheduler_gamma` | `null` | LR scheduler (`"coswarmup"` or a float gamma for StepLR). `coswarmup` warms up over the first epoch and decays over `epochs`, counting the optimizer steps one rank takes per epoch on `num_nodes * devices_per_node` ranks |
 | `warmup_steps` | `500` | LR warmup steps (for cosine warmup scheduler) |
 | `weight_decay` | `1e-6` | AdamW weight decay |
@@ -360,7 +361,10 @@ All metrics are logged with `on_step=True, on_epoch=True`. The `{stage}` prefix 
 
 | Metric | Description |
 |---|---|
-| `{stage}_loss` | Cross-entropy loss over diffusion denoising |
+| `{stage}_loss` | The loss that drives the gradients: `{stage}_loss_all` or `{stage}_loss_non_pad`, as `loss_positions` selects |
+| `{stage}_loss_all` | Cross-entropy over every unsampled position, padding included |
+| `{stage}_loss_non_pad` | The same over unsampled positions whose true token is not padding |
+| `{stage}_loss_pad` | The same over unsampled positions whose true token is padding |
 | `{stage}_prev_hard_acc` | Hard accuracy on previously unmasked positions |
 | `{stage}_prev_soft_acc` | Soft accuracy on previously unmasked positions |
 | `{stage}_fut_hard_acc` | Hard accuracy on future (still masked) positions |
@@ -374,6 +378,41 @@ All metrics are logged with `on_step=True, on_epoch=True`. The `{stage}` prefix 
 | `{stage}_gpu_memory_usage` | GPU memory allocated (bytes) |
 | `train_grad_norm` | Global L2 gradient norm (train only, step-level) |
 | `lr-AdamW` | Current learning rate (from `LearningRateMonitor`) |
+
+### Loss terms and padding
+
+Every sequence is padded at its tail with pad tokens up to the model's fixed length, so
+most positions of a typical protein are padding. The loss is computed three ways on every
+step and all three are logged: over all unsampled positions, over the non-pad ones (the
+`<START>`, residue and `<END>` tokens) and over the pad ones. Each is the summed negative
+log-probability of its positions divided by their count plus one, averaged over the batch,
+so a sequence with no padding has `loss_non_pad` equal to `loss_all`.
+
+Padding is a property of the target, not of the input. The mask token marks the positions
+the model has not been shown; a pad that has already been sampled is context and is in none
+of the three terms.
+
+`loss_positions` chooses which term drives the gradients, and that term is also what
+`{stage}_loss` reports, so `val_loss` and best-checkpoint selection follow it. Values of
+`val_loss` are therefore not comparable between runs with different `loss_positions`; use
+the explicit terms for that.
+
+Generation decodes a sequence by dropping the special tokens from all positions, so the
+length of a generated protein is set by where the model emits pad tokens. With
+`loss_positions: "non_pad"` nothing in the gradients asks the model to predict padding, and
+the model drifts away from it. In a test finetune of `run1_base` on 1,024 Swiss-Prot
+proteins (832 steps, everything else equal), `loss_pad` rose about tenfold with `"non_pad"`
+and did not move with `"all"`, and sequences generated for a 72-residue protein's prompt
+averaged 326 residues against 81. A model that starts out unable to end its sequences
+never learns to with `"non_pad"`.
+
+The non-pad term is also about as many times larger than `loss_all` as the model's length
+is longer than the sequence (4.6 times in that test, in the gradient norm too), so with
+`"non_pad"` the same learning rate acts correspondingly larger.
+
+To judge or select a model by the sequence alone without changing what it is trained on,
+keep `"all"` and add `{"metric": "val_loss_non_pad", "mode": "min"}` to
+`checkpoint_monitors`.
 
 ### sync_dist behavior
 

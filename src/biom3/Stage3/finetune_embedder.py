@@ -41,9 +41,15 @@ class TextToZcEmbedder(nn.Module):
     match PenCL so its checkpoint loads with ``strict=False`` (the protein-branch
     keys are ignored). With ``stage2_args=None`` the Facilitator is not built at
     all and ``forward`` returns the raw z_t.
+
+    ``stage2_args`` has no default: which vector conditions ProteoScribe is fixed
+    by how it was pretrained, and nothing here can check that, so a caller has to
+    say ``None`` deliberately rather than reach the raw-z_t front-end by omission.
+    The default lives on :func:`build_text_to_zc_embedder` instead, where it
+    preserves the historical behaviour.
     """
 
-    def __init__(self, stage1_args, stage2_args=None):
+    def __init__(self, stage1_args, stage2_args):
         super().__init__()
         self.text_encoder = stage1_mod.TextEncoder(args=stage1_args)
         self.text_projection = stage1_mod.ProjectionHead(

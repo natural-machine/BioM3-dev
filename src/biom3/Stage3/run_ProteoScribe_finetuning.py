@@ -45,6 +45,7 @@ from biom3.core.dry_run import run_dry_run
 from biom3.core.run_utils import setup_file_logging, teardown_file_logging
 from biom3.core.distributed import get_global_rank
 from biom3.core.weight_sets import (
+    check_facilitator,
     check_normalize_zc,
     check_text_attention_mask,
     merge_weight_set,
@@ -438,13 +439,12 @@ def main(args, ds_config=None):
             args.weight_set, args.pencl_weights, args.text_attention_mask)
         zc_summary, zc_warning = check_normalize_zc(
             args.weight_set, args.pretrained_weights, args.normalize_zc)
-        mask_warning = mask_warning + zc_warning
+        facilitator_summary, facilitator_warning = check_facilitator(
+            args.weight_set, args.pretrained_weights, args.use_facilitator)
+        mask_warning = mask_warning + zc_warning + facilitator_warning
         if get_global_rank() == 0:
             base.log_weight_set_replacements(args)
-            logger.info(
-                "Conditioning vector: %s",
-                "z_c = facilitator(z_t)" if args.use_facilitator
-                else "z_c = z_t (no Facilitator)")
+            logger.info(facilitator_summary)
             logger.info(mask_summary)
             logger.info(zc_summary)
             for line in mask_warning:

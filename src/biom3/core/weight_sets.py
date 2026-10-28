@@ -11,8 +11,9 @@ absolute paths are used as-is. The bundle itself supports config composition
 via ``load_json_config``.
 
 A bundle can also record how its weights were trained, so a run can be checked
-against it: ``pencl_trained_with_text_attention_mask`` and
-``proteoscribe_trained_with_normalized_zc``, each true or false.
+against it: ``pencl_trained_with_text_attention_mask``,
+``proteoscribe_trained_with_normalized_zc`` and
+``proteoscribe_trained_with_facilitator``, each true or false.
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ from biom3.core.helpers import load_json_config
 WEIGHT_KEYS = ("pencl_weights", "facilitator_weights", "proteoscribe_weights")
 PENCL_MASK_KEY = "pencl_trained_with_text_attention_mask"
 NORMALIZED_ZC_KEY = "proteoscribe_trained_with_normalized_zc"
+FACILITATOR_KEY = "proteoscribe_trained_with_facilitator"
 
 
 def load_weight_set(path):
@@ -150,6 +152,22 @@ def proteoscribe_trained_with_normalized_zc(weight_set_path, proteoscribe_weight
                      proteoscribe_weights)
 
 
+def proteoscribe_trained_with_facilitator(weight_set_path, proteoscribe_weights=None):
+    """Whether a bundle records ProteoScribe as conditioned on ``facilitator(z_t)``.
+
+    False means it was trained on the raw ``z_t`` with no Facilitator in the
+    chain. Returns the bundle's ``proteoscribe_trained_with_facilitator`` value,
+    or None when nothing can be said: no bundle, no such key, or
+    ``proteoscribe_weights`` is not the ProteoScribe file the bundle names.
+
+    This record is the only source of truth for the question. The Stage 3
+    ``facilitator`` config key is an HDF5 group-name prefix, not a mode, and
+    says nothing about how a model was conditioned.
+    """
+    return _recorded(weight_set_path, FACILITATOR_KEY, "proteoscribe_weights",
+                     proteoscribe_weights)
+
+
 def check_text_attention_mask(weight_set_path, pencl_weights, text_attention_mask):
     """Compare a run's caption attention mask setting with a bundle's record.
 
@@ -209,5 +227,39 @@ def check_normalize_zc(weight_set_path, proteoscribe_weights, normalize_zc):
         f"vectors ({NORMALIZED_ZC_KEY}),",
         f"but this run has --normalize_zc {'on' if normalize_zc else 'off'}.",
         "The model will be conditioned on vectors of a length it was not trained on.",
+        bar,
+    ]
+
+
+def check_facilitator(weight_set_path, proteoscribe_weights, use_facilitator):
+    """Compare where a run's conditioning vector comes from with a bundle's record.
+
+    Returns ``(summary, warning)`` as :func:`check_text_attention_mask` does:
+    the warning is empty unless the two disagree, and the run's setting is not
+    changed either way.
+    """
+    trained_with = proteoscribe_trained_with_facilitator(
+        weight_set_path, proteoscribe_weights)
+    source = "z_c = facilitator(z_t)" if use_facilitator else "z_c = z_t (no Facilitator)"
+    summary = "Conditioning vector: %s; %s" % (
+        source,
+        _other_file_note(weight_set_path, FACILITATOR_KEY, "proteoscribe_weights",
+                         proteoscribe_weights)
+        or {True: "the weight set records ProteoScribe as trained on facilitator(z_t)",
+            False: "the weight set records ProteoScribe as trained on the raw z_t",
+            None: "how ProteoScribe was conditioned is not recorded"}[trained_with],
+    )
+    if trained_with is None or trained_with == bool(use_facilitator):
+        return summary, []
+    bar = "!" * 72
+    return summary, [
+        bar,
+        "CONDITIONING SOURCE DOES NOT MATCH THE WEIGHTS",
+        f"{weight_set_path} records ProteoScribe as trained on "
+        f"{'facilitator(z_t)' if trained_with else 'the raw z_t'} "
+        f"({FACILITATOR_KEY}),",
+        f"but this run conditions on "
+        f"{'facilitator(z_t)' if use_facilitator else 'the raw z_t'}.",
+        "The model will be conditioned on vectors from a space it was not trained on.",
         bar,
     ]

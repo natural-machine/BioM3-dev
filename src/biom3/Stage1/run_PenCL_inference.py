@@ -130,7 +130,9 @@ def parse_arguments(args):
                              "(Stage 1 pfam training since 2026-09-09), off "
                              "(default) for run1_base, which was trained without "
                              "it. With it on, z_t does not depend on padding and "
-                             "'--text_padding dynamic' is safe and faster.")
+                             "'--text_padding dynamic' is safe and faster. Also "
+                             "settable as text_attention_mask in the JSON config, "
+                             "so a weight set's configs can carry it.")
     parser.add_argument("--float32_matmul_precision", type=str, default=None,
                         choices=["highest", "high", "medium"],
                         help="fp32 matmul precision. 'high' (config default) enables "
@@ -349,7 +351,9 @@ def main(args, _setup_logging=True):
         # The dataset is built from config_args, not from the CLI namespace, so the
         # padding mode has to be injected here to reach the collate_fn.
         config_args.text_padding = config_args_parser.text_padding
-        text_attention_mask = config_args_parser.text_attention_mask
+        text_attention_mask = bool(
+            config_args_parser.text_attention_mask
+            or getattr(config_args, "text_attention_mask", False))
         logger.info("caption attention mask: %s", "on" if text_attention_mask else "off")
         if config_args.text_padding != "max_padding" and not text_attention_mask:
             logger.warning(

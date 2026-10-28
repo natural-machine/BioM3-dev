@@ -90,6 +90,26 @@ biom3_embedding_pipeline \
     --skip_facilitator
 ```
 
+A ProteoScribe trained on the raw `z_t` must be generated from the raw `z_t`, so a weight
+set can record which one its ProteoScribe expects:
+
+```json
+{
+    "proteoscribe_weights": "./weights/ProteoScribe/run2_dim16_base_proteoscribe.bin",
+    "proteoscribe_trained_with_facilitator": false
+}
+```
+
+Under `--generate`, a disagreement between that record and `--skip_facilitator` logs a
+`CONDITIONING SOURCE DOES NOT MATCH THE WEIGHTS` warning; the run still follows the flag.
+`biom3_finetune_stage3` checks the same record against `--use_facilitator`.
+
+This record is the only source of truth for the question. The Stage 3 `facilitator` config
+key is an HDF5 group-name prefix — `<facilitator>_data` names the group the trainer reads
+`z_c` from — not a mode, so it says nothing about whether a Facilitator was involved. The
+pipeline writes `z_c = z_t` into a group called `MMD_data` by default, so a model trained
+with no Facilitator at all can legitimately carry `"facilitator": "MMD"`.
+
 ### Output files
 
 Given `--output_dir outputs --prefix mydata`, the pipeline produces:

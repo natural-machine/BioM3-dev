@@ -35,6 +35,7 @@ from biom3.core.run_utils import (
     write_manifest,
 )
 from biom3.core.weight_sets import (
+    check_facilitator,
     check_normalize_zc,
     check_text_attention_mask,
     merge_weight_set,
@@ -283,10 +284,15 @@ def main(args):
         if args.generate:
             zc_summary, zc_warning = check_normalize_zc(
                 args.weight_set, args.proteoscribe_weights, args.normalize_zc)
+            facilitator_summary, facilitator_warning = check_facilitator(
+                args.weight_set, args.proteoscribe_weights,
+                not args.skip_facilitator)
+            zc_warning = zc_warning + facilitator_warning
         if is_main_process():
             logger.info(mask_summary)
             if args.generate:
                 logger.info(zc_summary)
+                logger.info(facilitator_summary)
             for line in mask_warning + zc_warning:
                 logger.warning(line)
 

@@ -87,7 +87,7 @@ Produces joint protein/text embeddings (`z_p`, `z_t`) from a CSV of (sequence, p
 | `--num_workers` | int | 0 | DataLoader worker count. |
 | `--load_from_checkpoint` | flag | False | Kept for compatibility; it no longer changes how weights load. With it, or with a `.ckpt` path, the network class follows the config's `model_type`. |
 | `--text_padding` | str | `max_padding` | Caption padding: `max_padding` pads to `text_max_length`, as training does; `dynamic` pads to the batch's longest caption. Without `--text_attention_mask`, `dynamic` makes `z_t` depend on batch composition. |
-| `--text_attention_mask` | flag | False | Pass the caption attention mask to BERT so `[PAD]` tokens are ignored. Set it to match how the weights were trained: on for weights trained with the mask (Stage 1 pfam training since 2026-09-09), off for `run1_base`. A mismatch runs without error but gives a different `z_t` (mean cosine 0.87 to the matched setting, measured on `run1_base`). With it on, `--text_padding dynamic` gives the same `z_t` and is faster. |
+| `--text_attention_mask` | flag | False | Pass the caption attention mask to BERT so `[PAD]` tokens are ignored. Set it to match how the weights were trained: on for weights trained with the mask (Stage 1 pfam training since 2026-09-09, and `run2_dim16_base`), off for `run1_base`. A mismatch runs without error but gives a different `z_t` (mean cosine 0.87 to the matched setting, measured on `run1_base`). With it on, `--text_padding dynamic` gives the same `z_t` and is faster. Also settable as `text_attention_mask` in the JSON config, so a weight set's configs can carry it; the flag turns it on, the config cannot turn it off. |
 | `--no_amp` | flag | False | Disable autocast and run the forward pass in fp32. Autocast (bf16 on xpu, fp16 on cuda) is on by default. bf16 rounding depends on tensor shape, so results vary slightly with batch size; pair `--no_amp` with `--float32_matmul_precision highest` when comparing runs. |
 | `--cross_comparison_sample_limit` | int | 0 | Samples used for the O(n²) cross-comparison metrics (dot-product probabilities, homology matrix). `0` = skip entirely (default), `-1` = all, positive = that many. Each metric allocates an n×n fp32 matrix (~25 GB at n=80k), so `-1` is only safe on small datasets. **Print-only** — saved embeddings are unaffected. |
 
@@ -242,7 +242,7 @@ Runs `biom3_PenCL_inference` → `biom3_Facilitator_sample` → HDF5 compilation
 | `--cross_comparison_sample_limit` | int | 0 | Forwarded to Stage 1. `0` = skip the O(n²) cross-comparison metrics (default), `-1` = all, positive = that many. **Print-only**. |
 | `--mmd_sample_limit` | int | 1000 | Stage 2 MMD sample cap. |
 | `--dataset_key` | str | `MMD_data` | HDF5 group name for the compiled output. |
-| `--skip_facilitator` | flag | False | Replace Stage 2 with the identity map, for weight sets with no Facilitator: `z_c` is written to `<prefix>.Facilitator_emb.pt` as a copy of `z_t`, and the HDF5 compile (or Stage 3 with `--generate`) runs on it as usual. |
+| `--skip_facilitator` | flag | False | Replace Stage 2 with the identity map, for weight sets with no Facilitator: `z_c` is written to `<prefix>.Facilitator_emb.pt` as a copy of `z_t`, and the HDF5 compile (or Stage 3 with `--generate`) runs on it as usual. Required for weights trained without a Facilitator, such as `run2_dim16_base`. With `--generate` it is checked against the weight set's `proteoscribe_trained_with_facilitator`, with a loud warning on disagreement; that record is the only source of truth for the question, since the Stage 3 `facilitator` config key is an HDF5 group-name prefix, not a mode. |
 
 #### Optional arguments — Stage 3 generation
 
@@ -494,7 +494,7 @@ This entrypoint is always finetuning: it loads pretrained ProteoScribe weights o
 | `--stage2_config_path` | `None` | Facilitator config |
 | `--pencl_weights` | `None` | PenCL weights |
 | `--facilitator_weights` | `None` | Facilitator weights |
-| `--weight_set` | `None` | Weight-set JSON (e.g. `configs/weights/run1_base.json`). Fills `--pencl_weights`, `--facilitator_weights` and `--pretrained_weights` when they are not given, and its records of how PenCL and ProteoScribe were trained are checked against `--text_attention_mask` and `--normalize_zc`. Given on the command line, it also replaces a path set in the JSON config, since the command line outranks the config; a path given on the command line always wins. |
+| `--weight_set` | `None` | Weight-set JSON (e.g. `configs/weights/run1_base.json`). Fills `--pencl_weights`, `--facilitator_weights` and `--pretrained_weights` when they are not given, and its records of how PenCL and ProteoScribe were trained are checked against `--text_attention_mask`, `--normalize_zc` and `--use_facilitator`. Given on the command line, it also replaces a path set in the JSON config, since the command line outranks the config; a path given on the command line always wins. |
 | `--text_attention_mask` | `False` | Pass the caption attention mask to BERT in the frozen front-end. Set it to match how the PenCL weights were trained; `False` for `run1_base`. When it disagrees with the weight set's `pencl_trained_with_text_attention_mask`, the run follows the flag and logs a loud warning at the start and the end |
 | `--zp_batch_size` | `64` | Batch size for `z_p` precomputation |
 

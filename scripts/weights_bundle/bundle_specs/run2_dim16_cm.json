@@ -1,0 +1,14 @@
+{
+  "name": "biom3-weights-run2_dim16_cm",
+
+  "weights": {
+    "ProteoScribe/run2_dim16_cm_proteoscribe.bin": "weights/ProteoScribe/run2_dim16_cm_proteoscribe.bin"
+  },
+
+  "configs": {
+    "_base_ProteoScribe.json": "scripts/weights_bundle/configs/run2_dim16_base_ProteoScribe.json",
+    "run2_dim16_base.json": "configs/weights/run2_dim16_base.json",
+    "run2_dim16_cm.json": "configs/weights/run2_dim16_cm.json",
+    "NOTICE.md": "scripts/weights_bundle/configs/run2_dim16_base_NOTICE.md"
+  }
+}

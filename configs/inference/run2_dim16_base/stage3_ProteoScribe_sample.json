@@ -1,0 +1,17 @@
+{
+  "_base_configs": ["../_base_runtime.json",
+                    "../../stage3_training/models/_base_ProteoScribe_1block.json"],
+  "_overwrite_configs": [],
+
+  "device": "auto",
+
+  "num_replicas": 5,
+  "unmasking_order": "random",
+  "token_strategy": "sample",
+  "batch_size_sample": 32,
+  "seed": 42,
+
+  "text_emb_dim": 16,
+  "facilitator": "zt",
+  "normalize_zc": true
+}

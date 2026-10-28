@@ -1,0 +1,4 @@
+{
+    "_base_configs": ["./run2_dim16_base.json"],
+    "proteoscribe_weights": "./weights/ProteoScribe/run2_dim16_pdz_proteoscribe.bin"
+}

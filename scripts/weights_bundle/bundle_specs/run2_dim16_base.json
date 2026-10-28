@@ -1,0 +1,23 @@
+{
+  "name": "biom3-weights-run2_dim16_base",
+
+  "weights": {
+    "LLMs/esm2_t33_650M_UR50D.pt": "weights/LLMs/esm2_t33_650M_UR50D.pt",
+    "LLMs/esm2_t33_650M_UR50D-contact-regression.pt": "weights/LLMs/esm2_t33_650M_UR50D-contact-regression.pt",
+    "LLMs/ESM2_LICENSE.md": "weights/LLMs/ESM2_LICENSE.md",
+    "LLMs/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext/config.json": "weights/LLMs/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext/config.json",
+    "LLMs/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext/pytorch_model.bin": "weights/LLMs/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext/pytorch_model.bin",
+    "LLMs/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext/tokenizer_config.json": "weights/LLMs/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext/tokenizer_config.json",
+    "LLMs/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext/vocab.txt": "weights/LLMs/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext/vocab.txt",
+    "LLMs/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext/LICENSE.md": "weights/LLMs/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext/LICENSE.md",
+    "PenCL/run2_dim16_base_pencl.bin": "weights/PenCL/run2_dim16_base_pencl.bin",
+    "ProteoScribe/run2_dim16_base_proteoscribe.bin": "weights/ProteoScribe/run2_dim16_base_proteoscribe.bin"
+  },
+
+  "configs": {
+    "_base_PenCL.json": "scripts/weights_bundle/configs/run2_dim16_base_PenCL.json",
+    "_base_ProteoScribe.json": "scripts/weights_bundle/configs/run2_dim16_base_ProteoScribe.json",
+    "run2_dim16_base.json": "configs/weights/run2_dim16_base.json",
+    "NOTICE.md": "scripts/weights_bundle/configs/run2_dim16_base_NOTICE.md"
+  }
+}

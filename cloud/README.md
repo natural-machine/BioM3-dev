@@ -281,6 +281,26 @@ Build from a spec on a machine that has the referenced weights present in `weigh
 DGX Spark, where `weights/` is linked from the share), then push under a tag. The tools have
 no git awareness — no clean-tree or matching-commit requirement.
 
+Each run has its own spec. `run2_dim16_base` is `run1_base`'s counterpart with no Facilitator;
+the seven `run2_dim16_<family>` specs each hold one ProteoScribe finetune and are meant to be
+pulled on top of `run2_dim16_base`:
+
+`run2_dim16_base` is published. The family tags are not — build and push any of them the
+same way when they are wanted:
+
+```bash
+for s in run2_dim16_sh3 run2_dim16_pdz run2_dim16_cm run2_dim16_ww run2_dim16_amp501 run2_dim16_s1a run2_dim16_cme300; do
+    python scripts/weights_bundle/build_bundle.py \
+        scripts/weights_bundle/bundle_specs/$s.json -o ~/biom3-bundles
+    scripts/weights_bundle/push_bundle.sh \
+        ~/biom3-bundles/biom3-weights-$s "$s" --repo ghcr.io/<org>/biom3-weights
+done
+```
+
+The shared ESM-2 and BiomedBERT blobs are byte-identical to the ones `run1_base` already
+published, and OCI storage is content-addressed, so pushing `run2_dim16_base` re-uploads only
+what is actually new.
+
 ```bash
 # 1. Build — copies/flattens the files the spec lists, writes a checksummed MANIFEST.json.
 python scripts/weights_bundle/build_bundle.py \

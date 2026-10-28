@@ -1,16 +1,48 @@
 # Weights Bundle (GHCR)
 
-The BioM3 Run 1 base weights are published to GHCR as an OCI artifact, alongside the
-software images. One `oras pull` gets a consistent, checksummed set of weights for all
-three stages along with the architecture configs those weights require in order to load
-successfully.
+The BioM3 base weights are published to GHCR as OCI artifacts, alongside the
+software images. One `oras pull` gets a consistent, checksummed set of weights along with
+the architecture configs those weights require in order to load successfully.
 
 | | |
 |---|---|
 | Package | `ghcr.io/natural-machine/biom3-weights` |
-| Tag | `run1_base` (whatever the publisher pushed it as) |
-| Size | ~6.44 GB across 13 files |
+| Tags | `run1_base`, `run2_dim16_base` (whatever the publisher pushed them as) |
+| Size | ~6.44 GB for `run1_base`, ~6.43 GB for `run2_dim16_base`, ~0.34 GB per family add-on |
 | Prereq | [`oras`](https://oras.land/docs/installation) — a single static binary |
+
+## Which bundle
+
+| tag | stages | conditioning | notes |
+|---|---|---|---|
+| `run1_base` | PenCL + Facilitator + ProteoScribe | `z_c = facilitator(z_t)`, z=512 | published; the NeurIPS-era stack |
+| `run2_dim16_base` | PenCL + ProteoScribe (**no Facilitator**) | `z_c = z_t`, z=16 | published; Swiss-Prot + Pfam, trained on Aurora |
+| `run2_dim16_<family>` | ProteoScribe only | as `run2_dim16_base` | **not yet published** — specs exist for `sh3`, `pdz`, `cm`, `ww`, `amp501`, `s1a`, `cme300` |
+
+A `*_base` tag is self-sufficient: it carries the frozen backbones plus one trained model
+per stage, so it generates on its own. A family tag carries only its ProteoScribe finetune
+and is an add-on to its `*_base`, never a substitute for it.
+
+The `dim16` in `run2_dim16_*` is the latent width. PenCL was also trained at z=32 and
+z=512 in the same run family, but every ProteoScribe so far was trained at `text_emb_dim:
+16` and accepts nothing else, so the width is part of the name to keep the pairings
+unambiguous.
+
+The two runs are not interchangeable: they differ in latent width, in whether a Facilitator
+sits in the chain, and in two settings that fail *silently* when mismatched. Each bundle
+ships a weight set recording all of it, so pass `--weight_set` and the tools check the run
+against the weights:
+
+| record | `run1_base` | `run2_dim16_base` |
+|---|---|---|
+| `pencl_trained_with_text_attention_mask` | `false` | `true` |
+| `proteoscribe_trained_with_normalized_zc` | `false` | `true` |
+| `proteoscribe_trained_with_facilitator` | `true` | `false` |
+
+`proteoscribe_trained_with_facilitator` is the only source of truth for whether a
+Facilitator was in the chain. The Stage 3 `facilitator` config key is an HDF5 group-name
+prefix naming the group training data was read from — not a mode — so it says nothing
+either way, and a model trained on raw `z_t` can legitimately carry `"facilitator": "MMD"`.
 
 ## Contents
 
@@ -29,6 +61,36 @@ biom3-weights-run1_base/
     ├── Facilitator/
     └── ProteoScribe/
 ```
+
+`run2_dim16_base` has the same shape with no `Facilitator/`, and adds its weight set and a
+`NOTICE.md` covering how the weights must be conditioned:
+
+```txt
+biom3-weights-run2_dim16_base/
+├── MANIFEST.json
+├── configs/
+│   ├── _base_PenCL.json
+│   ├── _base_ProteoScribe.json
+│   ├── run2_dim16_base.json       the weight set, with the three records
+│   └── NOTICE.md
+└── weights/
+    ├── LLMs/                ESM-2 + BiomedBERT, as run1_base
+    ├── PenCL/run2_dim16_base_pencl.bin
+    └── ProteoScribe/run2_dim16_base_proteoscribe.bin
+```
+
+A **family bundle** carries only its own ProteoScribe weights, so layer it on `run2_dim16_base`:
+pull `run2_dim16_base` first for the encoders and PenCL, then the family into the same weights
+root. Its `configs/run2_dim16_<family>.json` weight set inherits the records from the
+`run2_dim16_base.json` shipped beside it, overriding only `proteoscribe_weights`.
+
+```bash
+biom3_fetch_weights run2_dim16_base -o ./weights
+biom3_fetch_weights run2_dim16_sh3  -o ./weights   # merges in; shared files are skipped
+```
+
+The family tags are not published yet, so the second command only works once someone has
+pushed that tag; their specs are in `scripts/weights_bundle/bundle_specs/`.
 
 - **`configs/`** holds a small JSON fragment per stage carrying only the settings needed
   to construct and load that stage. Shipping them with the weights keeps configuration and
@@ -178,10 +240,41 @@ biom3_ProteoScribe_sample \
     --output_path outputs/generated_sequences.csv
 ```
 
-A future weight set whose architecture differs from these defaults would ship a fragment that
-no longer matches `configs/inference/`; that's when you compose the shipped fragment into a
-config via `_overwrite_configs` (or the planned bundle-config integration tool). run1_base
-does not need it.
+### run2_dim16_base
+
+run2_dim16_base is the first weight set whose architecture is *not* the repo default, so it ships
+with its own committed inference configs under
+[../../configs/inference/run2_dim16_base/](../../configs/inference/run2_dim16_base/). They compose the
+stock bases and state only the run2 deltas (`proj_embedding_dim: 16`, `text_emb_dim: 16`,
+`text_attention_mask: true`, `normalize_zc: true`), so they work in a fresh checkout without
+the bundle's `configs/` linked.
+
+There is no Facilitator stage, so the chain is Stage 1 → Stage 3 and `z_c = z_t`:
+
+```bash
+biom3_embedding_pipeline --generate \
+    -i my.csv -o outputs/run2 --prefix run2 \
+    --weight_set configs/weights/run2_dim16_base.json \
+    --pencl_config configs/inference/run2_dim16_base/stage1_PenCL.json \
+    --proteoscribe_config configs/inference/run2_dim16_base/stage3_ProteoScribe_sample.json \
+    --skip_facilitator --text_attention_mask --normalize_zc
+```
+
+`--skip_facilitator` is required; without it the pipeline asks for Facilitator weights that
+do not exist. The `--weight_set` makes the run check itself against the three records above
+and warn loudly on any mismatch. The two boolean settings are also carried by the configs,
+but passing them explicitly is harmless and makes the invocation self-describing.
+
+Swap in a family by changing one flag — the family weight set names the same PenCL:
+
+```bash
+    --weight_set configs/weights/run2_dim16_sh3.json
+```
+
+A weight set whose architecture differs from the repo defaults ships a fragment that no
+longer matches `configs/inference/`; compose the shipped fragment into a config via
+`_overwrite_configs`, or follow the `configs/inference/run2_dim16_base/` pattern. run1_base does
+not need it.
 
 Image: bind the pulled bundle's `configs/` to `/app/configs/bundles/run1_base` and your own
 `configs/` to `/app/configs` (see [Into an image](#into-an-image)); the same

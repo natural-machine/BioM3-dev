@@ -11,7 +11,10 @@
     "LLMs/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext/vocab.txt": "weights/LLMs/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext/vocab.txt",
     "LLMs/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext/LICENSE.md": "weights/LLMs/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext/LICENSE.md",
     "PenCL/run2_dim16_base_pencl.bin": "weights/PenCL/run2_dim16_base_pencl.bin",
-    "ProteoScribe/run2_dim16_base_proteoscribe.bin": "weights/ProteoScribe/run2_dim16_base_proteoscribe.bin"
+    "ProteoScribe/run2_dim16_base_proteoscribe.bin": "weights/ProteoScribe/run2_dim16_base_proteoscribe.bin",
+    "_base_PenCL.json": "scripts/weights_bundle/configs/run2_dim16_base_PenCL.json",
+    "_base_ProteoScribe.json": "scripts/weights_bundle/configs/run2_dim16_base_ProteoScribe.json",
+    "run2_dim16_base.json": "configs/weights/run2_dim16_base.json"
   },
 
   "configs": {

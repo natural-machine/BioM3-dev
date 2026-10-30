@@ -120,7 +120,7 @@ from biom3.Stage3.callbacks import (
 )
 from biom3.Stage3.io import prepare_model_ProteoScribe
 from biom3.core.dry_run import coerce_dry_run_output, run_dry_run
-from biom3.core.helpers import coerce_limit_batches, load_json_config
+from biom3.core.helpers import coerce_limit_batches, load_json_config, str_to_bool
 from biom3.core.weight_sets import check_normalize_zc, merge_weight_set
 from biom3.core.run_utils import (
     backup_if_exists, collect_training_env, resolve_devices_per_node,
@@ -1002,33 +1002,6 @@ def save_model(
                 os.symlink(last_state_dict_ema_fpath, symlink_ema_path)
 
     return
-
-
-def str_to_bool(s):
-    """
-    Convert string representation of boolean values to Python bool type.
-    
-    This utility function handles conversion of case-insensitive string 
-    values 'true' and 'false' to their corresponding Python boolean values. 
-    It raises an error for any other input string.
-    
-    Args:
-        s: String to convert, expected to be 'true' or 'false' (case-insensitive)
-        
-    Returns:
-        bool: True if input is 'true' (case-insensitive), False if 'false'
-        
-    Raises:
-        ValueError: If the input is anything other than 'true' or 'false'
-    """
-    if isinstance(s, bool):
-        return s
-    if s.lower() == 'true':
-        return True
-    elif s.lower() == 'false':
-        return False
-    else:
-        raise ValueError("Input must be 'True' or 'False'")
 
 
 def parse_lr_scaling(value):

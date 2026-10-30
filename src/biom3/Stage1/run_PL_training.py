@@ -49,7 +49,7 @@ import biom3.Stage1.preprocess as prep
 import biom3.Stage1.model as mod
 import biom3.Stage1.PL_wrapper as PL_mod
 from biom3.core.dry_run import coerce_dry_run_output, run_dry_run
-from biom3.core.helpers import coerce_limit_batches, load_json_config
+from biom3.core.helpers import coerce_limit_batches, load_json_config, str_to_bool
 from biom3.core.run_utils import (
     backup_if_exists, collect_training_env, resolve_devices_per_node,
     setup_file_logging, teardown_file_logging, write_manifest,
@@ -83,17 +83,6 @@ def parse_lr_scaling(value):
         return 'sqrt'
     raise ValueError(
         f"scale_learning_rate must be one of true/false/linear/sqrt, got {value!r}")
-
-
-def str_to_bool(s):
-    if isinstance(s, bool):
-        return s
-    if s.lower() == 'true':
-        return True
-    elif s.lower() == 'false':
-        return False
-    else:
-        raise ValueError("Input must be 'True' or 'False'")
 
 
 def none_or_int(s):

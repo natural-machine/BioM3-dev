@@ -220,6 +220,23 @@ def optional_bool(value, name="value"):
     raise ValueError(f"{name} must be True or False, got {value!r}")
 
 
+def str_to_bool(s):
+    """Convert 'True'/'False' (any case) to a bool, raising on anything else.
+
+    For a setting that is always stated, as the training entry points' word-valued
+    boolean arguments are. Use :func:`optional_bool` instead where the value may
+    be left unset and a later source should get its turn.
+    """
+    if isinstance(s, bool):
+        return s
+    if s.lower() == 'true':
+        return True
+    elif s.lower() == 'false':
+        return False
+    else:
+        raise ValueError("Input must be 'True' or 'False'")
+
+
 def resolve_setting(cli_value, config_value, default):
     """A setting from the command line, else a config, else a default.
 

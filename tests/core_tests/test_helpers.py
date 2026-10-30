@@ -8,6 +8,7 @@ from biom3.core.helpers import (
     optional_positive_int,
     resolve_bool,
     resolve_setting,
+    str_to_bool,
 )
 
 
@@ -128,3 +129,31 @@ def test_resolve_bool_rejects(cli, config):
 ])
 def test_resolve_setting(cli, config, default, expected):
     assert resolve_setting(cli, config, default) == expected
+
+
+@pytest.mark.parametrize("value, expected", [
+    (True, True), (False, False),
+    ("True", True), ("true", True), ("TRUE", True),
+    ("False", False), ("false", False), ("FALSE", False),
+])
+def test_str_to_bool(value, expected):
+    assert str_to_bool(value) is expected
+
+
+@pytest.mark.parametrize("value", ["yes", "no", "1", "0", "", "none"])
+def test_str_to_bool_rejects(value):
+    """Unlike optional_bool, every value has to be stated as True or False."""
+    with pytest.raises(ValueError, match="must be 'True' or 'False'"):
+        str_to_bool(value)
+
+
+@pytest.mark.parametrize("module_path", [
+    "biom3.Stage1.run_PL_training",
+    "biom3.Stage2.run_PL_training",
+    "biom3.Stage3.run_PL_training",
+])
+def test_training_modules_share_one_str_to_bool(module_path):
+    """They had a copy each; call sites use the module-local name, so it stays."""
+    import importlib
+
+    assert importlib.import_module(module_path).str_to_bool is str_to_bool

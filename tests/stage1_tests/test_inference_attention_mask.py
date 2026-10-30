@@ -126,8 +126,13 @@ def test_zt_without_the_mask_depends_on_padding(text_path):
     assert (with_c2 - with_c3).abs().max().item() > 1e-2
 
 
-@pytest.mark.parametrize("extra, expected", [([], False), (["--text_attention_mask"], True)])
+@pytest.mark.parametrize("extra, expected", [
+    ([], None),
+    (["--text_attention_mask", "True"], True),
+    (["--text_attention_mask", "false"], False),
+])
 def test_stage1_flag(extra, expected):
+    """Unset stays None, so the config gets its turn before the default."""
     args = parse_stage1_args([
         "-i", "None",
         "-c", "configs/inference/stage1_PenCL.json",
@@ -138,7 +143,11 @@ def test_stage1_flag(extra, expected):
     assert args.text_attention_mask is expected
 
 
-@pytest.mark.parametrize("extra, expected", [([], False), (["--text_attention_mask"], True)])
+@pytest.mark.parametrize("extra, expected", [
+    ([], False),
+    (["--text_attention_mask", "True"], True),
+    (["--text_attention_mask", "False"], False),
+])
 def test_pipeline_hands_the_flag_to_stage1(tmp_path, monkeypatch, extra, expected):
     seen = []
 

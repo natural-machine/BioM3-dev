@@ -14,6 +14,7 @@ import biom3.Stage1.model as S1mod
 from biom3.Stage1.io import load_pencl_weights
 from biom3.Stage3.io import prepare_model_ProteoScribe
 from biom3.core.distributed import is_main_process
+from biom3.core.helpers import optional_bool, resolve_bool
 from biom3.core.io import load_state_dict_unwrap_pl as _load_state_dict_unwrap_pl
 from biom3.core.weight_sets import (
     WEIGHT_KEYS,
@@ -40,10 +41,14 @@ def add_conditioning_args(parser):
                              "--stage3_init_weights when they are not given, and its "
                              "record of how PenCL was trained is checked against "
                              "--text_attention_mask.")
-    parser.add_argument("--text_attention_mask", action="store_true",
-                        help="Pass the caption attention mask to BERT when embedding "
-                             "prompts. Set it to match how the PenCL weights were "
-                             "trained; off (default) for run1_base.")
+    parser.add_argument("--text_attention_mask", type=optional_bool, default=None,
+                        metavar="BOOL",
+                        help="True or False: pass the caption attention mask to BERT "
+                             "when embedding prompts. Set it to match how the PenCL "
+                             "weights were trained; False for run1_base. Also "
+                             "settable as text_attention_mask in --stage1_config; "
+                             "this argument wins over it, and with neither set the "
+                             "mask is off.")
     return parser
 
 
@@ -57,11 +62,11 @@ def log_mask_warning(lines):
 def configure_conditioning(args, cfg1):
     """Apply --weight_set and --text_attention_mask to an RL run.
 
-    Fills the stage weights the run does not name from the weight set, tells
-    the prompt encoder (through ``cfg1``) whether to pass the caption attention
-    mask, and logs how that compares with the weight set's record. Returns the
-    lines of the mismatch warning, empty unless the two disagree, so the caller
-    can repeat them when the run ends.
+    Fills the stage weights the run does not name from the weight set, resolves
+    whether the prompt encoder passes the caption attention mask and writes that
+    back to ``cfg1``, and logs how it compares with the weight set's record.
+    Returns the lines of the mismatch warning, empty unless the two disagree, so
+    the caller can repeat them when the run ends.
     """
     replaced = merge_weight_set(args, args.weight_set, keys=WEIGHT_KEYS,
                                 rename=_WEIGHT_SET_ARGS, argv=getattr(args, "_argv", None))
@@ -69,9 +74,17 @@ def configure_conditioning(args, cfg1):
         for attr, old, new in replaced:
             logger.info("--weight_set on the command line replaces the config's %s: %s -> %s",
                         attr, old, new)
-    cfg1.text_attention_mask = bool(args.text_attention_mask)
+    # Command line, else the Stage 1 config, else off. The run's own --config_path
+    # arrives through parser.set_defaults, so it sits at the command line's level
+    # and outranks the Stage 1 config, as it does for the training entry points.
+    cfg1.text_attention_mask = resolve_bool(
+        args.text_attention_mask,
+        getattr(cfg1, "text_attention_mask", None),
+        default=False,
+        name="text_attention_mask",
+    )
     summary, warning = check_text_attention_mask(
-        args.weight_set, args.stage1_weights, args.text_attention_mask)
+        args.weight_set, args.stage1_weights, cfg1.text_attention_mask)
     # RL has no normalize_zc: it always conditions on z_c at its own length.
     _, zc_warning = check_normalize_zc(args.weight_set, args.stage3_init_weights, False)
     warning = warning + zc_warning

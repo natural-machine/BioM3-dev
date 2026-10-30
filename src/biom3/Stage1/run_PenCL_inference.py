@@ -64,7 +64,14 @@ from functools import partial
 import biom3.Stage1.preprocess as prep
 import biom3.Stage1.model as mod
 from biom3.Stage1.io import load_pencl_weights
-from biom3.core.helpers import load_json_config, convert_to_namespace
+from biom3.core.helpers import (
+    convert_to_namespace,
+    load_json_config,
+    optional_bool,
+    resolve_bool,
+    resolve_setting,
+)
+from biom3.core.weight_sets import check_text_attention_mask
 from biom3.core.run_utils import (
     get_biom3_version,
     get_git_hash,
@@ -116,23 +123,28 @@ def parse_arguments(args):
                              "n x n fp32 matrix (~25 GB at n=80k), so -1 is only safe on "
                              "small datasets. Cross-comparison results are print-only; "
                              "saved embeddings are unaffected.")
-    parser.add_argument("--text_padding", type=str, default="max_padding",
+    parser.add_argument("--text_padding", type=str, default=None,
                         choices=["max_padding", "dynamic"],
                         help="caption padding. 'max_padding' pads to "
                              "text_max_length, matching training; 'dynamic' pads "
                              "to the batch's longest caption, which makes z_t "
                              "depend on batch composition unless "
-                             "--text_attention_mask is given.")
-    parser.add_argument("--text_attention_mask", action="store_true",
-                        help="Pass the caption attention mask to BERT, so [PAD] "
-                             "tokens are ignored. Set it to match how the weights "
-                             "were trained: on for weights trained with the mask "
-                             "(Stage 1 pfam training since 2026-09-09), off "
-                             "(default) for run1_base, which was trained without "
-                             "it. With it on, z_t does not depend on padding and "
-                             "'--text_padding dynamic' is safe and faster. Also "
-                             "settable as text_attention_mask in the JSON config, "
-                             "so a weight set's configs can carry it.")
+                             "--text_attention_mask is on. Also settable as "
+                             "text_padding in the JSON config; this argument wins "
+                             "over it, and with neither set the mode is "
+                             f"'{prep.DEFAULT_TEXT_PADDING}'.")
+    parser.add_argument("--text_attention_mask", type=optional_bool, default=None,
+                        metavar="BOOL",
+                        help="True or False: pass the caption attention mask to "
+                             "BERT, so [PAD] tokens are ignored. Set it to match "
+                             "how the weights were trained: True for weights "
+                             "trained with the mask (Stage 1 pfam training since "
+                             "2026-09-09), False for run1_base, which was trained "
+                             "without it. With it on, z_t does not depend on "
+                             "padding and '--text_padding dynamic' is safe and "
+                             "faster. Also settable as text_attention_mask in the "
+                             "JSON config; this argument wins over it, and with "
+                             "neither set the mask is off.")
     parser.add_argument("--float32_matmul_precision", type=str, default=None,
                         choices=["highest", "high", "medium"],
                         help="fp32 matmul precision. 'high' (config default) enables "
@@ -146,6 +158,11 @@ def parse_arguments(args):
                              "results vary with batch size. Pair with "
                              "--float32_matmul_precision highest for a fully "
                              "deterministic fp32 forward pass.")
+    parser.add_argument("--weight_set", type=str, default=None,
+                        help="weight-set bundle JSON naming --model_path as its "
+                             "pencl_weights. Its record of how PenCL was trained is "
+                             "checked against --text_attention_mask; it does not "
+                             "replace --model_path.")
 
     return parser.parse_args(args)
 
@@ -348,13 +365,33 @@ def main(args, _setup_logging=True):
         raw_config = copy.deepcopy(config_dict)
         config_args = convert_to_namespace(config_dict)
 
-        # The dataset is built from config_args, not from the CLI namespace, so the
-        # padding mode has to be injected here to reach the collate_fn.
-        config_args.text_padding = config_args_parser.text_padding
-        text_attention_mask = bool(
-            config_args_parser.text_attention_mask
-            or getattr(config_args, "text_attention_mask", False))
+        # Both settings resolve command line, else config, else default. The
+        # dataset is built from config_args, not from the CLI namespace, so the
+        # resolved padding mode has to be injected here to reach the collate_fn.
+        config_args.text_padding = resolve_setting(
+            config_args_parser.text_padding,
+            getattr(config_args, "text_padding", None),
+            default=prep.DEFAULT_TEXT_PADDING,
+        )
+        if config_args.text_padding not in prep.TEXT_PADDING_MODES:
+            raise ValueError(
+                f"text_padding must be one of {sorted(prep.TEXT_PADDING_MODES)}, "
+                f"got {config_args.text_padding!r}"
+            )
+        text_attention_mask = resolve_bool(
+            config_args_parser.text_attention_mask,
+            getattr(config_args, "text_attention_mask", None),
+            default=False,
+            name="text_attention_mask",
+        )
+        logger.info("caption padding: %s", config_args.text_padding)
         logger.info("caption attention mask: %s", "on" if text_attention_mask else "off")
+        mask_summary, mask_warning = check_text_attention_mask(
+            config_args_parser.weight_set, model_path, text_attention_mask)
+        if is_main:
+            logger.info(mask_summary)
+            for line in mask_warning:
+                logger.warning(line)
         if config_args.text_padding != "max_padding" and not text_attention_mask:
             logger.warning(
                 "text_padding=%s: BioM3 training used max_padding, so z_t is "
@@ -612,6 +649,8 @@ def main(args, _setup_logging=True):
                 outputs={
                     "num_samples": len(acc_id_array),
                     "embedding_dim": int(z_t_tensor.shape[1]),
+                    "text_padding": config_args.text_padding,
+                    "text_attention_mask": text_attention_mask,
                     "output_file": os.path.abspath(args.output_path),
                 },
                 resolved_paths={

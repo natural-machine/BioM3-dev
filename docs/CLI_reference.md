@@ -14,6 +14,8 @@ Entrypoints covered elsewhere:
 
 > **Config composition**: every entrypoint that accepts `--config_path` loads JSON via `core.helpers.load_json_config`, which honors two special keys: `_base_configs` (loaded before the current file — current file overrides) and `_overwrite_configs` (loaded after — they override). CLI args override everything. See [stage3_training.md#config-composition](misc/stage3_training.md#config-composition).
 
+> **Settings precedence**: for an inference-time setting, the value in force is what the command line states, else what the config file states, else the argparse default. A setting left off the command line therefore comes from the config for those weights. Settings expressible both ways take `True`/`False` rather than being presence-only flags, so "off" is something a caller can state rather than only fail to state, and an unrecognised value is refused rather than read as a default. Architecture fields (the shape of the weights) are config-only and have no command-line argument.
+
 ---
 
 ## The `biom3` command
@@ -86,10 +88,11 @@ Produces joint protein/text embeddings (`z_p`, `z_t`) from a CSV of (sequence, p
 | `--batch_size` | int | 32 | Inference batch size. |
 | `--num_workers` | int | 0 | DataLoader worker count. |
 | `--load_from_checkpoint` | flag | False | Kept for compatibility; it no longer changes how weights load. With it, or with a `.ckpt` path, the network class follows the config's `model_type`. |
-| `--text_padding` | str | `max_padding` | Caption padding: `max_padding` pads to `text_max_length`, as training does; `dynamic` pads to the batch's longest caption. Without `--text_attention_mask`, `dynamic` makes `z_t` depend on batch composition. |
-| `--text_attention_mask` | flag | False | Pass the caption attention mask to BERT so `[PAD]` tokens are ignored. Set it to match how the weights were trained: on for weights trained with the mask (Stage 1 pfam training since 2026-09-09, and `run2_dim16_base`), off for `run1_base`. A mismatch runs without error but gives a different `z_t` (mean cosine 0.87 to the matched setting, measured on `run1_base`). With it on, `--text_padding dynamic` gives the same `z_t` and is faster. Also settable as `text_attention_mask` in the JSON config, so a weight set's configs can carry it; the flag turns it on, the config cannot turn it off. |
+| `--text_padding` | str | `max_padding` | Caption padding: `max_padding` pads to `text_max_length`, as training does; `dynamic` pads to the batch's longest caption. Without the caption attention mask, `dynamic` makes `z_t` depend on batch composition. Also settable as `text_padding` in the JSON config, so a weight set's configs can carry it. This argument wins over the config; with neither set the mode is `max_padding`. The mode in force is logged. |
+| `--text_attention_mask` | `True`/`False` | False | Pass the caption attention mask to BERT so `[PAD]` tokens are ignored. Set it to match how the weights were trained: `True` for weights trained with the mask (Stage 1 pfam training since 2026-09-09, and `run2_dim16_base`), `False` for `run1_base`. A mismatch runs without error but gives a different `z_t` (mean cosine 0.87 to the matched setting, measured on `run1_base`). With it on, `--text_padding dynamic` gives the same `z_t` and is faster. Also settable as `text_attention_mask` in the JSON config, so a weight set's configs can carry it. This argument wins over the config, in both directions; with neither set the mask is off. An unrecognised value is refused. |
 | `--no_amp` | flag | False | Disable autocast and run the forward pass in fp32. Autocast (bf16 on xpu, fp16 on cuda) is on by default. bf16 rounding depends on tensor shape, so results vary slightly with batch size; pair `--no_amp` with `--float32_matmul_precision highest` when comparing runs. |
 | `--cross_comparison_sample_limit` | int | 0 | Samples used for the O(n²) cross-comparison metrics (dot-product probabilities, homology matrix). `0` = skip entirely (default), `-1` = all, positive = that many. Each metric allocates an n×n fp32 matrix (~25 GB at n=80k), so `-1` is only safe on small datasets. **Print-only** — saved embeddings are unaffected. |
+| `--weight_set` | str | None | Weight-set JSON naming `--model_path` as its `pencl_weights`. Its record of how PenCL was trained, `pencl_trained_with_text_attention_mask`, is checked against the caption attention mask in force; a disagreement logs a loud warning and the run follows the setting. It does not replace `--model_path`. |
 
 #### Example
 
@@ -169,9 +172,9 @@ Generates protein sequences from facilitated embeddings via diffusion sampling. 
 | `--num_replicas` | int | None | Sequences to generate per prompt. Overrides the config's `num_replicas`; when neither sets it, 5. `None` means unset. |
 | `--pre_unmask` | flag | False | Start diffusion from a partially-unmasked state. Requires `--pre_unmask_config`. |
 | `--pre_unmask_config` | str | None | Path to JSON describing the pre-unmask strategy. |
-| `--alpha` | float | 0.0 | Weight on `z_p` when conditioning: `y = alpha * z_p + (1 - alpha) * z_c`. `0` (default) is text-only. Anything above 0 requires `z_p` in `--input_path`, which Stage 1 emits and Stage 2 preserves. Only meaningful for a model trained with a matching blend — see [Conditioning blend](#conditioning-blend-alpha). |
-| `--normalize_zc` | flag | False | Scale each conditioning vector to unit length, after any `--alpha` blend. Use it for a model trained with `--normalize_zc True`, and only for such a model. Also settable as `normalize_zc` in the JSON config. |
-| `--weight_set` | str | None | Weight-set JSON naming `--model_path` as its `proteoscribe_weights`. Its record of how ProteoScribe was trained, `proteoscribe_trained_with_normalized_zc`, is checked against `--normalize_zc`; a disagreement logs a loud warning at the start and the end, and the run follows the flag. It does not replace `--model_path`. |
+| `--alpha` | float | 0.0 | Weight on `z_p` when conditioning: `y = alpha * z_p + (1 - alpha) * z_c`. `0` is text-only. Anything above 0 requires `z_p` in `--input_path`, which Stage 1 emits and Stage 2 preserves. Only meaningful for a model trained with a matching blend — see [Conditioning blend](#conditioning-blend-alpha). Also settable as `alpha` in the JSON config; this argument wins over the config, and with neither set it is `0.0`. |
+| `--normalize_zc` | `True`/`False` | False | Scale each conditioning vector to unit length, after any `--alpha` blend. Set it `True` for a model trained with `--normalize_zc True`, and only for such a model. Also settable as `normalize_zc` in the JSON config, so a weight set's configs can carry it. This argument wins over the config, in both directions; with neither set the vectors are left as they are. An unrecognised value is refused. |
+| `--weight_set` | str | None | Weight-set JSON naming `--model_path` as its `proteoscribe_weights`. Its record of how ProteoScribe was trained, `proteoscribe_trained_with_normalized_zc`, is checked against the normalisation in force; a disagreement logs a loud warning at the start and the end, and the run follows the setting. It does not replace `--model_path`. |
 
 #### Optional arguments — output
 
@@ -235,8 +238,8 @@ Runs `biom3_PenCL_inference` → `biom3_Facilitator_sample` → HDF5 compilation
 | `--device` | str | `auto` | One of `auto`, `cpu`, `cuda`, `xpu`. `auto` = the detected backend: CUDA, then XPU, else CPU. |
 | `--batch_size` | int | 256 | Stage 1 batch size. |
 | `--num_workers` | int | 0 | Stage 1 DataLoader worker count. |
-| `--text_padding` | str | `max_padding` | Forwarded to Stage 1. |
-| `--text_attention_mask` | flag | False | Forwarded to Stage 1: pass the caption attention mask to BERT. Must match how the PenCL weights were trained; off for `run1_base`. A weight set can record that as `pencl_trained_with_text_attention_mask` (true or false); the flag still decides what the run does, and the pipeline logs a loud warning when the two disagree. |
+| `--text_padding` | str | Stage 1 config, else `max_padding` | Forwarded to Stage 1 only when given, so a `text_padding` in the Stage 1 config is honoured otherwise. |
+| `--text_attention_mask` | `True`/`False` | Stage 1 config, else False | Forwarded to Stage 1: pass the caption attention mask to BERT. Must match how the PenCL weights were trained; `False` for `run1_base`. Resolved here — this argument, else `text_attention_mask` in the Stage 1 config, else off — and forwarded as that value, so the pipeline checks and Stage 1 run on the same setting. A weight set can record how the weights were trained as `pencl_trained_with_text_attention_mask` (true or false); the run still does what the setting says, and the pipeline logs a loud warning when the two disagree. |
 | `--no_amp` | flag | False | Forwarded to Stage 1: run the forward pass in fp32 instead of autocast. |
 | `--float32_matmul_precision` | str | config (`high`) | Forwarded to Stage 1. Pair `highest` with `--no_amp` for a deterministic fp32 forward pass. |
 | `--cross_comparison_sample_limit` | int | 0 | Forwarded to Stage 1. `0` = skip the O(n²) cross-comparison metrics (default), `-1` = all, positive = that many. **Print-only**. |
@@ -257,7 +260,7 @@ With `--generate`, the terminal step is [`biom3_ProteoScribe_sample`](#biom3_pro
 | `--no_fasta` | flag | False | Skip the FASTA output, which is on by default here. |
 | `--token_strategy` | str | None | Forwarded to the sampler. |
 | `--unmasking_order` | str | None | Forwarded to the sampler. |
-| `--normalize_zc` | flag | False | Forwarded to the sampler: scale each conditioning vector to unit length. For a ProteoScribe trained with `--normalize_zc True`. Checked against the weight set's `proteoscribe_trained_with_normalized_zc`, with a loud warning on disagreement. |
+| `--normalize_zc` | `True`/`False` | Stage 3 config, else False | Forwarded to the sampler: scale each conditioning vector to unit length. For a ProteoScribe trained with `--normalize_zc True`. Resolved here — this argument, else `normalize_zc` in the Stage 3 config, else off — and forwarded as that value. Checked against the weight set's `proteoscribe_trained_with_normalized_zc`, with a loud warning on disagreement. |
 | `--num_replicas` | int | None | Forwarded to the sampler. Unset defers to the Stage 3 config, else 5. |
 
 ---

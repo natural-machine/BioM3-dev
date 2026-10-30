@@ -113,14 +113,19 @@ def test_sampler_normalises_each_vector():
     assert torch.isfinite(normalize_conditioning(torch.zeros(1, 4))).all()
 
 
-@pytest.mark.parametrize("extra, expected", [([], False), (["--normalize_zc"], True)])
+@pytest.mark.parametrize("extra, expected", [
+    ([], None), (["--normalize_zc", "True"], True), (["--normalize_zc", "false"], False),
+])
 def test_sampler_option_parses(extra, expected):
+    """Unset stays None, so the config gets its turn before the default."""
     args = parse_sample_args(["-i", "emb.pt", "-c", "cfg.json", "-m", "w.bin", "-o", "out.pt"] + extra)
 
     assert args.normalize_zc is expected
 
 
-@pytest.mark.parametrize("extra, expected", [([], False), (["--normalize_zc"], True)])
+@pytest.mark.parametrize("extra, expected", [
+    ([], False), (["--normalize_zc", "True"], True), (["--normalize_zc", "False"], False),
+])
 def test_pipeline_hands_the_option_to_the_sampler(tmp_path, extra, expected):
     args = parse_pipeline_args([
         "-i", "in.csv", "-o", str(tmp_path), "--prefix", "run",
@@ -133,5 +138,4 @@ def test_pipeline_hands_the_option_to_the_sampler(tmp_path, extra, expected):
 
     argv = _build_stage3_argv(args, "emb.pt", "gen.pt")
 
-    assert ("--normalize_zc" in argv) is expected
     assert parse_sample_args(argv).normalize_zc is expected

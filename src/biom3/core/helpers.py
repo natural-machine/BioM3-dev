@@ -190,6 +190,61 @@ def coerce_limit_batches(value):
     return int(value) if value > 1 else float(value)
 
 
+def _is_unset(value):
+    """``None``, ``''`` and ``'None'`` (any case) all mean "not set"."""
+    return value is None or (
+        isinstance(value, str) and value.strip().lower() in ("", "none"))
+
+
+def optional_bool(value, name="value"):
+    """Coerce a true/false setting that may be unset, from argparse or JSON.
+
+    ``None``, ``''`` and ``'None'`` (any case) mean unset and return ``None``,
+    so the caller can fall back to its next source. Booleans pass through, and
+    ``'true'`` / ``'false'`` (any case) become the matching boolean. Usable
+    directly as an argparse ``type=``.
+
+    Raises ValueError for anything else, so an unrecognised value is refused
+    rather than read as true the way a non-empty string would be.
+    """
+    if isinstance(value, bool):
+        return value
+    if _is_unset(value):
+        return None
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text == "true":
+            return True
+        if text == "false":
+            return False
+    raise ValueError(f"{name} must be True or False, got {value!r}")
+
+
+def resolve_setting(cli_value, config_value, default):
+    """A setting from the command line, else a config, else a default.
+
+    Either source may be unset; the value is otherwise returned as given. For
+    true/false settings use :func:`resolve_bool`, which also coerces the value.
+    """
+    for value in (cli_value, config_value):
+        if not _is_unset(value):
+            return value
+    return default
+
+
+def resolve_bool(cli_value, config_value, default, name="value"):
+    """A true/false setting from the command line, else a config, else a default.
+
+    Both sources pass through :func:`optional_bool`, so either may be unset and
+    an unrecognised value in either raises instead of being taken as true.
+    """
+    for value in (cli_value, config_value):
+        resolved = optional_bool(value, name=name)
+        if resolved is not None:
+            return resolved
+    return default
+
+
 def optional_positive_int(value, name="value"):
     """Coerce a positive-int setting that may be unset, from argparse or JSON.
 

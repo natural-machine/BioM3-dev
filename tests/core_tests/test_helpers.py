@@ -2,7 +2,13 @@
 
 import pytest
 
-from biom3.core.helpers import coerce_limit_batches, optional_positive_int
+from biom3.core.helpers import (
+    coerce_limit_batches,
+    optional_bool,
+    optional_positive_int,
+    resolve_bool,
+    resolve_setting,
+)
 
 
 @pytest.mark.parametrize("value, expected, expected_type", [
@@ -47,3 +53,78 @@ def test_optional_positive_int(value, expected):
 def test_optional_positive_int_rejects(value):
     with pytest.raises(ValueError, match="num_replicas must be a positive integer"):
         optional_positive_int(value, name="num_replicas")
+
+
+@pytest.mark.parametrize("value, expected", [
+    (None, None),
+    ("None", None),
+    ("none", None),
+    ("", None),
+    ("  ", None),
+    (True, True),
+    (False, False),
+    ("True", True),
+    ("true", True),
+    (" TRUE ", True),
+    ("False", False),
+    ("false", False),
+    (" FALSE ", False),
+])
+def test_optional_bool(value, expected):
+    result = optional_bool(value)
+    assert result is expected
+
+
+@pytest.mark.parametrize("value", [
+    "yes", "no", "y", "n", "on", "off", "1", "0", 1, 0, 2, 1.0, [True], {},
+])
+def test_optional_bool_rejects(value):
+    """An unrecognised value raises rather than being read as true."""
+    with pytest.raises(ValueError, match="normalize_zc must be True or False"):
+        optional_bool(value, name="normalize_zc")
+
+
+@pytest.mark.parametrize("cli, config, default, expected", [
+    # Command line wins, in both directions.
+    (True, False, False, True),
+    (False, True, True, False),
+    ("True", False, False, True),
+    ("False", True, True, False),
+    # Config has its turn when the command line is unset.
+    (None, True, False, True),
+    (None, False, True, False),
+    (None, "true", False, True),
+    (None, "false", True, False),
+    # Default only when neither is set.
+    (None, None, False, False),
+    (None, None, True, True),
+    (None, "None", False, False),
+    ("", "", True, True),
+])
+def test_resolve_bool(cli, config, default, expected):
+    assert resolve_bool(cli, config, default) is expected
+
+
+@pytest.mark.parametrize("cli, config", [("yes", None), (None, "yes"), ("yes", True)])
+def test_resolve_bool_rejects(cli, config):
+    with pytest.raises(ValueError, match="text_attention_mask must be True or False"):
+        resolve_bool(cli, config, False, name="text_attention_mask")
+
+
+@pytest.mark.parametrize("cli, config, default, expected", [
+    # Command line wins.
+    ("dynamic", "max_padding", "max_padding", "dynamic"),
+    (0.5, 0.25, 0.0, 0.5),
+    (0, 0.25, 0.9, 0),
+    # Config has its turn when the command line is unset.
+    (None, "dynamic", "max_padding", "dynamic"),
+    (None, 0.25, 0.0, 0.25),
+    ("", 0.25, 0.0, 0.25),
+    # Default only when neither is set, including an explicit null or "None".
+    (None, None, "max_padding", "max_padding"),
+    (None, "None", "max_padding", "max_padding"),
+    ("None", None, 0.0, 0.0),
+    ("", "  ", "max_padding", "max_padding"),
+])
+def test_resolve_setting(cli, config, default, expected):
+    assert resolve_setting(cli, config, default) == expected

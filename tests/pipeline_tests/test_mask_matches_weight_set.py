@@ -78,7 +78,7 @@ def _run(tmp_path, monkeypatch, weight_set, *extra):
 
 @pytest.mark.parametrize("recorded, flag, trained, run", [
     (True, [], "with the mask", "--text_attention_mask off"),
-    (False, ["--text_attention_mask"], "without the mask", "--text_attention_mask on"),
+    (False, ["--text_attention_mask", "True"], "without the mask", "--text_attention_mask on"),
 ])
 def test_warns_when_the_flag_disagrees(tmp_path, monkeypatch, recorded, flag, trained, run):
     weight_set = _weight_set(tmp_path, pencl_trained_with_text_attention_mask=recorded)
@@ -92,8 +92,9 @@ def test_warns_when_the_flag_disagrees(tmp_path, monkeypatch, recorded, flag, tr
 
 
 @pytest.mark.parametrize("recorded, flag", [
-    (True, ["--text_attention_mask"]),
+    (True, ["--text_attention_mask", "True"]),
     (False, []),
+    (False, ["--text_attention_mask", "False"]),
 ])
 def test_quiet_when_the_flag_agrees(tmp_path, monkeypatch, recorded, flag):
     weight_set = _weight_set(tmp_path, pencl_trained_with_text_attention_mask=recorded)
@@ -101,7 +102,7 @@ def test_quiet_when_the_flag_agrees(tmp_path, monkeypatch, recorded, flag):
     assert WARNING not in _run(tmp_path, monkeypatch, weight_set, *flag)
 
 
-@pytest.mark.parametrize("flag", [[], ["--text_attention_mask"]])
+@pytest.mark.parametrize("flag", [[], ["--text_attention_mask", "True"]])
 def test_quiet_when_nothing_is_recorded(tmp_path, monkeypatch, flag):
     log = _run(tmp_path, monkeypatch, _weight_set(tmp_path), *flag)
 

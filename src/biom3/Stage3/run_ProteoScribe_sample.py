@@ -45,7 +45,14 @@ import torch.nn as nn
 import biom3.Stage3.sampling_analysis as Stage3_sample_tools
 import biom3.Stage3.animation_tools as Stage3_ani_tools
 from biom3.Stage3.io import prepare_model_ProteoScribe
-from biom3.core.helpers import load_json_config, convert_to_namespace, optional_positive_int
+from biom3.core.helpers import (
+    convert_to_namespace,
+    load_json_config,
+    optional_bool,
+    optional_positive_int,
+    resolve_bool,
+    resolve_setting,
+)
 from biom3.core.run_utils import (
     get_biom3_version,
     get_git_hash,
@@ -182,17 +189,22 @@ def parse_arguments(args):
                         help="fp32 matmul precision. 'high' (config default) enables "
                              "TF32 tensor cores; 'highest' forces full fp32 for bitwise "
                              "reproducibility. Overrides the config value when set.")
-    parser.add_argument('--alpha', type=float, default=0.0,
+    parser.add_argument('--alpha', type=float, default=None,
                         help="condition generation on a blend of the text and "
                              "sequence embeddings: y = alpha * z_p + (1 - alpha) "
-                             "* z_c. 0.0 = text only (default, the established "
-                             "behaviour); 1.0 = sequence only. Requires z_p in "
-                             "the embedding file when > 0.")
-    parser.add_argument('--normalize_zc', action='store_true', default=False,
-                        help="scale each conditioning vector to unit length, after any "
-                             "alpha blend. Use it for a model trained with "
-                             "--normalize_zc True, and only for such a model. Also "
-                             "settable as normalize_zc in the JSON config.")
+                             "* z_c. 0.0 = text only (the established behaviour); "
+                             "1.0 = sequence only. Requires z_p in the embedding "
+                             "file when > 0. Also settable as alpha in the JSON "
+                             "config; this argument wins over it, and with neither "
+                             "set alpha is 0.0.")
+    parser.add_argument('--normalize_zc', type=optional_bool, default=None,
+                        metavar='BOOL',
+                        help="True or False: scale each conditioning vector to unit "
+                             "length, after any alpha blend. Set it True for a model "
+                             "trained with --normalize_zc True, and only for such a "
+                             "model. Also settable as normalize_zc in the JSON "
+                             "config; this argument wins over it, and with neither "
+                             "set the vectors are left as they are.")
     parser.add_argument('--weight_set', type=str, default=None,
                         help="weight-set bundle JSON naming --model_path as its "
                              "proteoscribe_weights. Its record of how ProteoScribe was "
@@ -1013,13 +1025,20 @@ def main(args, _setup_logging=True):
         #     model = torch.compile(model)
         #     logger.info("Model compiled with torch.compile (inductor)")
 
-        # Resolve animation targets
-        alpha = getattr(config_args_parser, 'alpha', 0.0)
+        # Both settings resolve command line, else config, else default.
+        alpha = float(resolve_setting(
+            getattr(config_args_parser, 'alpha', None),
+            getattr(config_args, 'alpha', None),
+            default=0.0,
+        ))
         z_c = blend_conditioning(embedding_dataset, alpha)
         logger.info("Conditioning blend: alpha=%.3f (0 = z_c, 1 = z_p)", alpha)
-        config_args.normalize_zc = bool(
-            getattr(config_args_parser, 'normalize_zc', False)
-            or getattr(config_args, 'normalize_zc', False))
+        config_args.normalize_zc = resolve_bool(
+            getattr(config_args_parser, 'normalize_zc', None),
+            getattr(config_args, 'normalize_zc', None),
+            default=False,
+            name='normalize_zc',
+        )
         if config_args.normalize_zc:
             logger.info(
                 "Conditioning vectors scaled to unit length (mean length before: %.3f)",
@@ -1170,6 +1189,7 @@ def main(args, _setup_logging=True):
                     "seed": seed,
                     "unmasking_order": config_args.unmasking_order,
                     "token_strategy": config_args.token_strategy,
+                    "alpha": alpha,
                     "normalize_zc": config_args.normalize_zc,
                     "total_sequences": num_prompts * config_args.num_replicas,
                     "output_file": os.path.abspath(args.output_path),

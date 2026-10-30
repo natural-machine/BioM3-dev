@@ -26,7 +26,12 @@ import torch
 from biom3.backend.device import setup_logger
 from biom3.backend.device import DEVICE_CHOICES, resolve_device
 from biom3.core.distributed import barrier, is_main_process
-from biom3.core.helpers import load_json_config, optional_positive_int
+from biom3.core.helpers import (
+    load_json_config,
+    optional_bool,
+    optional_positive_int,
+    resolve_bool,
+)
 from biom3.core.run_utils import (
     get_biom3_version,
     get_git_hash,
@@ -110,20 +115,24 @@ def parse_arguments(args):
         help="Number of dataloader workers for Stage 1 (default: 0)"
     )
     parser.add_argument(
-        "--text_padding", type=str, default="max_padding",
+        "--text_padding", type=str, default=None,
         choices=["max_padding", "dynamic"],
         help="Stage 1 caption padding. 'max_padding' pads to text_max_length, "
              "matching training; 'dynamic' pads to the batch's longest caption, "
              "which makes z_t depend on batch composition unless "
-             "--text_attention_mask is given (default: max_padding)"
+             "--text_attention_mask is on. Also settable as text_padding in the "
+             "Stage 1 config; this argument wins over it, and with neither set "
+             "Stage 1's own default applies ('max_padding')"
     )
     parser.add_argument(
-        "--text_attention_mask", action="store_true",
-        help="Stage 1: pass the caption attention mask to BERT. Set it to match "
-             "how the PenCL weights were trained; off (default) for run1_base. "
-             "A weight set can record that as "
+        "--text_attention_mask", type=optional_bool, default=None, metavar="BOOL",
+        help="Stage 1, True or False: pass the caption attention mask to BERT. "
+             "Set it to match how the PenCL weights were trained; False for "
+             "run1_base. A weight set can record that as "
              "pencl_trained_with_text_attention_mask, and the pipeline warns "
-             "when this flag disagrees with it"
+             "when the run disagrees with it. Also settable as "
+             "text_attention_mask in the Stage 1 config; this argument wins over "
+             "it, and with neither set the mask is off"
     )
     parser.add_argument(
         "--no_amp", action="store_true",
@@ -183,9 +192,12 @@ def parse_arguments(args):
         help="Stage 3 unmasking order (passed through to the sampler)"
     )
     parser.add_argument(
-        "--normalize_zc", action="store_true",
-        help="Stage 3: scale each conditioning vector to unit length (passed through "
-             "to the sampler; for a ProteoScribe trained with --normalize_zc True)"
+        "--normalize_zc", type=optional_bool, default=None, metavar="BOOL",
+        help="Stage 3, True or False: scale each conditioning vector to unit "
+             "length (passed through to the sampler; True for a ProteoScribe "
+             "trained with --normalize_zc True). Also settable as normalize_zc "
+             "in the Stage 3 config; this argument wins over it, and with "
+             "neither set the vectors are left as they are"
     )
     parser.add_argument(
         "--num_replicas", type=optional_positive_int, default=None,
@@ -212,6 +224,25 @@ def parse_arguments(args):
         )
     if parsed.generate and not parsed.proteoscribe_config:
         parser.error("--proteoscribe_config is required with --generate")
+
+    # The two settings this pipeline checks against the weight set are resolved
+    # here, command line else stage config else default, and forwarded as a
+    # value. Resolving once is what keeps the check in main() and what the stage
+    # then does the same thing. --text_padding is checked against nothing, so it
+    # is forwarded only when given and Stage 1 reads its own config otherwise.
+    parsed.text_attention_mask = resolve_bool(
+        parsed.text_attention_mask,
+        load_json_config(parsed.pencl_config).get("text_attention_mask"),
+        default=False,
+        name="text_attention_mask",
+    )
+    if parsed.generate:
+        parsed.normalize_zc = resolve_bool(
+            parsed.normalize_zc,
+            load_json_config(parsed.proteoscribe_config).get("normalize_zc"),
+            default=False,
+            name="normalize_zc",
+        )
     return parsed
 
 
@@ -232,8 +263,7 @@ def _build_stage3_argv(args, input_path, output_path):
         argv += ["--unmasking_order", args.unmasking_order]
     if args.num_replicas is not None:
         argv += ["--num_replicas", str(args.num_replicas)]
-    if args.normalize_zc:
-        argv.append("--normalize_zc")
+    argv += ["--normalize_zc", str(args.normalize_zc)]
     return argv
 
 
@@ -320,9 +350,9 @@ def main(args):
             "--batch_size", str(args.batch_size),
             "--num_workers", str(args.num_workers),
             "--cross_comparison_sample_limit", str(args.cross_comparison_sample_limit),
-            "--text_padding", args.text_padding,
+            "--text_attention_mask", str(args.text_attention_mask),
         ] + (["--no_amp"] if args.no_amp else [])
-          + (["--text_attention_mask"] if args.text_attention_mask else [])
+          + (["--text_padding", args.text_padding] if args.text_padding else [])
           + (["--float32_matmul_precision", args.float32_matmul_precision]
              if args.float32_matmul_precision else []))
         run_stage1(stage1_args, _setup_logging=False)

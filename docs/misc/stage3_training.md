@@ -176,7 +176,7 @@ The primary config example is `configs/stage3_training/pretrain_scratch_v2.json`
 | `batch_size` | `16` | Mini-batch size per device |
 | `lr` | `3e-4` | Base learning rate |
 | `scale_learning_rate` | `true` | Multiply LR by `num_nodes * devices_per_node` |
-| `normalize_zc` | `false` | Scale the conditioning vector to unit length before the model sees it, after any `z_p` blend. Generation must then use `--normalize_zc` too, or the model is conditioned on vectors of a length it was not trained on |
+| `normalize_zc` | `false` | Scale the conditioning vector to unit length before the model sees it, after any `z_p` blend. Generation must then normalise too, or the model is conditioned on vectors of a length it was not trained on |
 | `loss_positions` | `"all"` | Which unsampled positions drive the gradients: `"all"`, or `"non_pad"` for the sequence without its padding. See [Loss terms and padding](#loss-terms-and-padding) |
 | `scheduler_gamma` | `null` | LR scheduler (`"coswarmup"` or a float gamma for StepLR). `coswarmup` warms up over the first epoch and decays over `epochs`, counting the optimizer steps one rank takes per epoch on `num_nodes * devices_per_node` ranks |
 | `warmup_steps` | `500` | LR warmup steps (for cosine warmup scheduler) |
@@ -429,8 +429,11 @@ the model sees it, in training and validation. It applies to the vector that con
 model, so after any `z_p` blend, and it works the same whether `z_c` is read from an HDF5
 file or computed on the device.
 
-A model trained this way has to be generated from the same way: pass `--normalize_zc` to
-`biom3_ProteoScribe_sample`, or to `biom3_embedding_pipeline --generate`, which hands it on.
+A model trained this way has to be generated from the same way: pass
+`--normalize_zc True` to `biom3_ProteoScribe_sample`, or to
+`biom3_embedding_pipeline --generate`, which hands it on. It can also be set as
+`normalize_zc` in the Stage 3 inference config, so the config published beside a
+set of weights carries it and no argument is needed at generation time.
 The weights themselves do not say how they were trained, so a weight set can record it:
 
 ```json

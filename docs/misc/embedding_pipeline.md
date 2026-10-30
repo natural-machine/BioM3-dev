@@ -45,8 +45,8 @@ biom3_embedding_pipeline \
 | `--batch_size` | `256` | Batch size for Stage 1 |
 | `--num_workers` | `0` | Dataloader workers for Stage 1 |
 | `--cross_comparison_sample_limit` | `0` | Stage 1 O(n²) cross-comparison metrics: `0` skips them, `-1` uses all, positive uses that many. Print-only; embeddings unaffected |
-| `--text_padding` | `max_padding` | Stage 1 caption padding (`max_padding` or `dynamic`) |
-| `--text_attention_mask` | off | Stage 1: pass the caption attention mask to BERT. Must match how the PenCL weights were trained; leave off for `run1_base`. See below |
+| `--text_padding` | Stage 1 config, else `max_padding` | Stage 1 caption padding (`max_padding` or `dynamic`). Forwarded only when given, so a `text_padding` in the Stage 1 config is honoured otherwise |
+| `--text_attention_mask` | Stage 1 config, else off | Stage 1, `True` or `False`: pass the caption attention mask to BERT. Must match how the PenCL weights were trained; `False` for `run1_base`. See below |
 | `--no_amp` | off | Run Stage 1 in fp32 instead of autocast (bf16 on xpu) |
 | `--float32_matmul_precision` | config (`high`) | Stage 1 fp32 matmul precision; pair `highest` with `--no_amp` for a deterministic fp32 pass |
 | `--mmd_sample_limit` | `1000` | Sample limit for MMD in Stage 2 |
@@ -56,9 +56,12 @@ biom3_embedding_pipeline \
 ### Caption attention mask
 
 Whether BERT should be given the caption attention mask depends on how the PenCL
-weights were trained, so it is a property of the weights. `--text_attention_mask`
-(off by default) is what decides it for a run. A weight set can record how its
-PenCL was trained:
+weights were trained, so it is a property of the weights. The setting in force is
+`--text_attention_mask True` or `False` if given, else `text_attention_mask` in
+the Stage 1 config, else off — so the configs published beside a set of weights
+can carry it and a caller need only state it to deviate on purpose. The pipeline
+resolves it and passes Stage 1 that value, so the check below and the run are on
+the same setting. A weight set can record how its PenCL was trained:
 
 ```json
 {
@@ -67,10 +70,12 @@ PenCL was trained:
 }
 ```
 
-When the flag disagrees with that record, the run still follows the flag, and the
-pipeline logs a `CAPTION ATTENTION MASK DOES NOT MATCH THE WEIGHTS` warning at the
-start and again at the end of the run log. A weight set without the key, or a
-`--pencl_weights` path other than the one the weight set names, is not checked.
+When the setting in force disagrees with that record, the run still follows the
+setting, and the pipeline logs a `CAPTION ATTENTION MASK DOES NOT MATCH THE
+WEIGHTS` warning at the start and again at the end of the run log. A weight set
+without the key, or a `--pencl_weights` path other than the one the weight set
+names, is not checked. `biom3_PenCL_inference` makes the same check on its own
+`--weight_set`, so a stage run directly is covered too.
 
 ### Without a Facilitator
 

@@ -82,7 +82,7 @@ the run.
 | `stage2_weights` | Facilitator `.bin`/`.pt` |
 | `stage3_init_weights` | ProteoScribe init (any supported format) |
 | `weight_set` | Optional weight-set JSON. Fills the three weights above when they are not given (and, when passed as `--weight_set` on the command line, replaces ones set in the JSON config), and its record of how PenCL was trained is checked against `text_attention_mask`. RL does not scale `z_c` to unit length, so it warns when the set records ProteoScribe as trained that way |
-| `text_attention_mask` | Pass the caption attention mask to BERT when embedding prompts (default `false`). Set it to match how the PenCL weights were trained; a mismatch with the weight set logs a loud warning |
+| `text_attention_mask` | `True` or `False`: pass the caption attention mask to BERT when embedding prompts. Set it to match how the PenCL weights were trained; a mismatch with the weight set logs a loud warning. Also settable as `text_attention_mask` in `stage1_config`, so the config published beside a set of weights can carry it; this setting wins over it, and with neither set the mask is off |
 | `prompts_path` | UTF-8 text file, one prompt per line |
 
 GRPO hyperparameters (defaults shown):

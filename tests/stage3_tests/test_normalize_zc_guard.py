@@ -147,7 +147,9 @@ GENERATE = ["--generate", "--proteoscribe_config", "configs/inference/stage3_Pro
 
 
 @pytest.mark.parametrize("recorded, flag, count", [
-    (True, [], 2), (False, ["--normalize_zc"], 2), (True, ["--normalize_zc"], 0), (False, [], 0),
+    (True, [], 2), (False, ["--normalize_zc", "True"], 2),
+    (True, ["--normalize_zc", "True"], 0), (False, [], 0),
+    (True, ["--normalize_zc", "False"], 2), (False, ["--normalize_zc", "False"], 0),
 ])
 def test_pipeline_warns_at_the_start_and_the_end(tmp_path, monkeypatch, recorded, flag, count):
     weight_set = _weight_set(tmp_path, proteoscribe_trained_with_normalized_zc=recorded)

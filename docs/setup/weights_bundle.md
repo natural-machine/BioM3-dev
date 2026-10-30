@@ -178,9 +178,11 @@ including the `--bind` flags and Apptainer environment setup.
 
 The bundle's `weights/` tree uses the **same filenames as `configs/weights/<name>.json`**,
 so once it is bound (or pulled) into `/app/weights`, `--weight_set configs/weights/run1_base.json`
-resolves against it — no per-stage `--model_path` needed for the tools that accept a weight
-set (`biom3_embedding_pipeline`, Stage 3 finetuning). The individual `biom3_*_inference` /
-`biom3_*_sample` entry points do not read `--weight_set`; pass `--model_path` explicitly there.
+resolves against it — no per-stage `--model_path` needed for the tools that take their weight
+paths from a weight set (`biom3_embedding_pipeline`, Stage 3 training and finetuning).
+`biom3_PenCL_inference` and `biom3_ProteoScribe_sample` take `--weight_set` too, but only to
+check the run against what the bundle records about those weights; it does not supply the
+path, so pass `--model_path` explicitly there.
 
 ### Pulled by the container itself
 
@@ -257,13 +259,14 @@ biom3_embedding_pipeline --generate \
     --weight_set configs/weights/run2_dim16_base.json \
     --pencl_config configs/inference/run2_dim16_base/stage1_PenCL.json \
     --proteoscribe_config configs/inference/run2_dim16_base/stage3_ProteoScribe_sample.json \
-    --skip_facilitator --text_attention_mask --normalize_zc
+    --skip_facilitator
 ```
 
 `--skip_facilitator` is required; without it the pipeline asks for Facilitator weights that
 do not exist. The `--weight_set` makes the run check itself against the three records above
-and warn loudly on any mismatch. The two boolean settings are also carried by the configs,
-but passing them explicitly is harmless and makes the invocation self-describing.
+and warn loudly on any mismatch. The two boolean settings come from the configs above, so
+there is nothing to pass for them; to deviate on purpose, state the opposite explicitly with
+`--text_attention_mask False` or `--normalize_zc False`.
 
 Swap in a family by changing one flag — the family weight set names the same PenCL:
 

@@ -125,8 +125,56 @@ def test_other_stage1_weights_are_not_checked(tmp_path):
 def test_entry_points_accept_the_arguments(module):
     default = module.parse_arguments([])
     given = module.parse_arguments(
-        ["--text_attention_mask", "--weight_set", "configs/weights/run1_base.json"])
+        ["--text_attention_mask", "True",
+         "--weight_set", "configs/weights/run1_base.json"])
 
-    assert default.text_attention_mask is False and default.weight_set is None
+    # Unset stays None, so --stage1_config gets its turn before the default.
+    assert default.text_attention_mask is None and default.weight_set is None
     assert given.text_attention_mask is True
     assert given.weight_set == "configs/weights/run1_base.json"
+    assert module.parse_arguments(
+        ["--text_attention_mask", "false"]).text_attention_mask is False
+
+
+@pytest.mark.parametrize("module", [run_grpo, run_gdpo, run_dpo])
+def test_entry_points_refuse_an_unrecognised_value(module):
+    with pytest.raises(SystemExit):
+        module.parse_arguments(["--text_attention_mask", "yes"])
+
+
+@pytest.mark.parametrize("given, configured, expected", [
+    (None, None, False),
+    (None, True, True),
+    (None, False, False),
+    (True, False, True),
+    (False, True, False),
+    (True, None, True),
+])
+def test_stage1_config_sets_the_mask_unless_the_run_states_it(given, configured, expected):
+    """The Stage 1 config published beside a set of weights can carry the mask."""
+    args = Namespace(weight_set=None, text_attention_mask=given,
+                     stage1_weights=None, stage2_weights=None, stage3_init_weights=None)
+    cfg1 = Namespace() if configured is None else Namespace(text_attention_mask=configured)
+
+    configure_conditioning(args, cfg1)
+
+    assert cfg1.text_attention_mask is expected
+
+
+def test_an_unrecognised_stage1_config_value_raises():
+    args = Namespace(weight_set=None, text_attention_mask=None,
+                     stage1_weights=None, stage2_weights=None, stage3_init_weights=None)
+
+    with pytest.raises(ValueError, match="text_attention_mask must be True or False"):
+        configure_conditioning(args, Namespace(text_attention_mask="yes"))
+
+
+def test_the_resolved_mask_is_what_gets_checked(tmp_path):
+    """A mask that came from the Stage 1 config is checked too."""
+    weight_set = _weight_set(tmp_path, pencl_trained_with_text_attention_mask=False)
+    args = Namespace(weight_set=weight_set, text_attention_mask=None,
+                     stage1_weights=None, stage2_weights=None, stage3_init_weights=None)
+
+    warning = configure_conditioning(args, Namespace(text_attention_mask=True))
+
+    assert WARNING in warning
